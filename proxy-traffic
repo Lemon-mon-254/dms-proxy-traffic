@@ -12,12 +12,10 @@ try_nft() {
 	out=$(sudo -n nft -j list table inet proxy_stat 2>/dev/null) || return 1
 	local up down
 	up=$(jq --arg c "proxy-up" '[.nftables[].rule?
-		| select(.expr != null)
-		| select(any(.expr[]; .comment? == $c))
+		| select(.comment? == $c)
 		| .expr[] | .counter?.bytes // 0] | add // 0' <<<"$out" 2>/dev/null) || return 1
 	down=$(jq --arg c "proxy-down" '[.nftables[].rule?
-		| select(.expr != null)
-		| select(any(.expr[]; .comment? == $c))
+		| select(.comment? == $c)
 		| .expr[] | .counter?.bytes // 0] | add // 0' <<<"$out" 2>/dev/null) || return 1
 	printf '{"up":%s,"down":%s,"persistent":true,"conns":0}\n' "${up:-0}" "${down:-0}"
 }
