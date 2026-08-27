@@ -7,15 +7,15 @@ import qs.Modules.Plugins
 PluginComponent {
     id: root
 
-    property string proxyPort: (pluginData.proxyPort !== undefined && pluginData.proxyPort !== "") ? pluginData.proxyPort : "7890"
+    property string proxyPort: (pluginData.proxyPort !== undefined && pluginData.proxyPort !== "") ? pluginData.proxyPort : "2547"
     readonly property string scriptPath: {
-        var url = Qt.resolvedUrl("proxy-traffic").toString()
+        var url = Qt.resolvedUrl("proxy-traffic-split").toString()
         return url.indexOf("file://") === 0 ? url.substring(7) : url
     }
     property int refreshSec: (pluginData.refreshInterval !== undefined && pluginData.refreshInterval !== "") ? parseInt(pluginData.refreshInterval) : 2
     property bool showDownRate: pluginData.showDownRate !== false
     property bool showUpRate: pluginData.showUpRate !== false
-    property bool showTotal: pluginData.showTotal === true
+    property bool showCumulative: pluginData.showCumulative === true
     property bool showPort: pluginData.showPort === true
 
     property real rateUp: 0
@@ -23,7 +23,6 @@ PluginComponent {
     property real totalUp: 0
     property real totalDown: 0
     property bool persistent: false
-    property int connCount: 0
     property bool sampleOk: false
     property real lastUp: -1
     property real lastDown: -1
@@ -60,13 +59,12 @@ PluginComponent {
         root.totalUp = s.up
         root.totalDown = s.down
         root.persistent = s.persistent === true
-        root.connCount = s.conns || 0
         root.sampleOk = true
     }
 
     Process {
         id: sampler
-        command: ["sh", "-c", "PROXY_PORT=" + root.proxyPort + " exec '" + root.scriptPath + "'"]
+        command: ["sh", "-c", "exec '" + root.scriptPath + "'"]
         stdout: StdioCollector {
             id: outCollector
             onStreamFinished: root.applySample(outCollector.text)
@@ -83,12 +81,11 @@ PluginComponent {
 
     horizontalBarPill: Component {
         Row {
-            id: hRow
-            spacing: Theme.spacingXS
+            spacing: Theme.spacingS
 
             DankIcon {
                 name: "swap_vert"
-                size: Theme.iconSize - 6
+                size: Theme.iconSize - 4
                 color: root.sampleOk ? Theme.primary : Theme.surfaceVariantText
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -110,7 +107,7 @@ PluginComponent {
             }
 
             StyledText {
-                visible: root.showTotal
+                visible: root.showCumulative
                 text: root.fmtBytes(root.totalDown + root.totalUp)
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceVariantText
@@ -129,12 +126,11 @@ PluginComponent {
 
     verticalBarPill: Component {
         Column {
-            id: vCol
             spacing: Theme.spacingXS
 
             DankIcon {
                 name: "swap_vert"
-                size: Theme.iconSize - 6
+                size: Theme.iconSize - 4
                 color: root.sampleOk ? Theme.primary : Theme.surfaceVariantText
                 anchors.horizontalCenter: parent.horizontalCenter
             }
@@ -156,7 +152,7 @@ PluginComponent {
             }
 
             StyledText {
-                visible: root.showTotal
+                visible: root.showCumulative
                 text: root.fmtBytes(root.totalDown + root.totalUp)
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceVariantText
@@ -174,105 +170,144 @@ PluginComponent {
 
             Item {
                 width: parent.width
-                implicitHeight: root.popoutHeight - popoutRoot.headerHeight - popoutRoot.detailsHeight - Theme.spacingXL
+                implicitHeight: contentCol.implicitHeight
 
                 Column {
+                    id: contentCol
                     anchors.fill: parent
                     spacing: Theme.spacingM
 
-                    StyledRect {
+                    // Speed cards - side by side
+                    Row {
                         width: parent.width
-                        height: 84
-                        radius: Theme.cornerRadius
-                        color: Theme.surfaceContainerHigh
+                        spacing: Theme.spacingS
 
-                        Column {
-                            anchors.left: parent.left
-                            anchors.leftMargin: Theme.spacingM
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 2
+                        // Download card
+                        StyledRect {
+                            width: (parent.width - Theme.spacingS) / 2
+                            height: 80
+                            radius: Theme.cornerRadius
+                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
 
-                            Row {
+                            Column {
+                                anchors.centerIn: parent
                                 spacing: 4
-                                DankIcon { name: "arrow_downward"; size: 14; color: Theme.primary }
-                                StyledText { text: "下载速率"; font.pixelSize: Theme.fontSizeSmall; color: Theme.surfaceVariantText }
-                            }
-                            StyledText {
-                                text: root.fmtSpeed(root.rateDown)
-                                font.pixelSize: Theme.fontSizeXLarge
-                                font.weight: Font.Bold
-                                color: Theme.surfaceText
+
+                                DankIcon {
+                                    name: "arrow_downward"
+                                    size: Theme.iconSize
+                                    color: Theme.primary
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                }
+
+                                StyledText {
+                                    text: root.fmtSpeed(root.rateDown)
+                                    font.pixelSize: Theme.fontSizeLarge
+                                    font.weight: Font.Bold
+                                    color: Theme.primary
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                }
+
+                                StyledText {
+                                    text: "下载"
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.surfaceVariantText
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                }
                             }
                         }
 
-                        Column {
-                            anchors.right: parent.right
-                            anchors.rightMargin: Theme.spacingM
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 2
+                        // Upload card
+                        StyledRect {
+                            width: (parent.width - Theme.spacingS) / 2
+                            height: 80
+                            radius: Theme.cornerRadius
+                            color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.15)
 
-                            Row {
+                            Column {
+                                anchors.centerIn: parent
                                 spacing: 4
-                                DankIcon { name: "arrow_upward"; size: 14; color: Theme.primary }
-                                StyledText { text: "上传速率"; font.pixelSize: Theme.fontSizeSmall; color: Theme.surfaceVariantText }
-                            }
-                            StyledText {
-                                text: root.fmtSpeed(root.rateUp)
-                                font.pixelSize: Theme.fontSizeXLarge
-                                font.weight: Font.Bold
-                                color: Theme.surfaceText
+
+                                DankIcon {
+                                    name: "arrow_upward"
+                                    size: Theme.iconSize
+                                    color: Theme.error
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                }
+
+                                StyledText {
+                                    text: root.fmtSpeed(root.rateUp)
+                                    font.pixelSize: Theme.fontSizeLarge
+                                    font.weight: Font.Bold
+                                    color: Theme.error
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                }
+
+                                StyledText {
+                                    text: "上传"
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.surfaceVariantText
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                }
                             }
                         }
                     }
 
+                    // Cumulative traffic
                     StyledRect {
                         width: parent.width
-                        implicitHeight: rowsCol.implicitHeight + Theme.spacingM * 2
+                        implicitHeight: totalRow.implicitHeight + Theme.spacingM * 2
                         radius: Theme.cornerRadius
                         color: Theme.surfaceContainerHigh
 
-                        Column {
-                            id: rowsCol
+                        Row {
+                            id: totalRow
                             anchors.fill: parent
                             anchors.margins: Theme.spacingM
-                            spacing: Theme.spacingS
+                            spacing: Theme.spacingM
 
-                            Item {
-                                width: parent.width
-                                height: Math.max(tl.implicitHeight, tv.implicitHeight)
-                                StyledText { id: tl; anchors.left: parent.left; text: "累计下行"; font.pixelSize: Theme.fontSizeMedium; color: Theme.surfaceVariantText }
-                                StyledText { id: tv; anchors.right: parent.right; text: root.fmtBytes(root.totalDown); font.pixelSize: Theme.fontSizeMedium; font.weight: Font.Medium; color: Theme.surfaceText }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 2
+
+                                StyledText {
+                                    text: "累计下行"
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.surfaceVariantText
+                                }
+                                StyledText {
+                                    text: root.fmtBytes(root.totalDown)
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    color: Theme.surfaceText
+                                }
                             }
-                            Item {
-                                width: parent.width
-                                height: Math.max(tl2.implicitHeight, tv2.implicitHeight)
-                                StyledText { id: tl2; anchors.left: parent.left; text: "累计上行"; font.pixelSize: Theme.fontSizeMedium; color: Theme.surfaceVariantText }
-                                StyledText { id: tv2; anchors.right: parent.right; text: root.fmtBytes(root.totalUp); font.pixelSize: Theme.fontSizeMedium; font.weight: Font.Medium; color: Theme.surfaceText }
-                            }
-                            Rectangle { width: parent.width; height: 1; color: Theme.surfaceContainerHighest }
-                            Item {
-                                width: parent.width
-                                height: Math.max(cl.implicitHeight, cv.implicitHeight)
-                                StyledText { id: cl; anchors.left: parent.left; text: "活跃连接"; font.pixelSize: Theme.fontSizeMedium; color: Theme.surfaceVariantText }
-                                StyledText { id: cv; anchors.right: parent.right; text: root.connCount + " 条"; font.pixelSize: Theme.fontSizeMedium; font.weight: Font.Medium; color: Theme.surfaceText }
+
+                            Item { width: 1; height: 1; anchors.verticalCenter: parent.verticalCenter }
+
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 2
+
+                                StyledText {
+                                    text: "累计上行"
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.surfaceVariantText
+                                }
+                                StyledText {
+                                    text: root.fmtBytes(root.totalUp)
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    color: Theme.surfaceText
+                                }
                             }
                         }
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: root.persistent
-                              ? "nftables 持久统计已开启,数值为开机以来的历史累计"
-                              : "当前为会话统计(仅活跃连接),运行 proxy_stat_on 可开启 nftables 持久统计"
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
-                        wrapMode: Text.WordWrap
                     }
                 }
             }
         }
     }
 
-    popoutWidth: 320
-    popoutHeight: 400
+    popoutWidth: 340
+    popoutHeight: 280
 }

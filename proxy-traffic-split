@@ -1,0 +1,32 @@
+#!/bin/bash
+# proxy-traffic-split: 读取 nftables 计数器并输出代理流量 JSON
+# 用于 DMS ProxyTraffic 插件
+#
+# 需要 sudo 无密码权限读取 nftables:
+#   echo "$USER ALL=(root) NOPASSWD: /usr/bin/nft" | sudo tee /etc/sudoers.d/proxy-nft
+#
+# 输出格式: {"up": <上行字节>, "down": <下行字节>, "persistent": true}
+
+# 从 nftables 读取计数器 (sudo -n 非交互, 避免卡住等待密码)
+read_counters() {
+    local output input
+    output=$(sudo -n nft list chain inet proxy_stat output 2>/dev/null)
+    input=$(sudo -n nft list chain inet proxy_stat input 2>/dev/null)
+
+    # 无权限或表不存在时返回错误状态
+    if [ -z "$output" ] || [ -z "$input" ]; then
+        echo '{"up":0,"down":0,"persistent":false,"error":"nftables not accessible"}'
+        return 1
+    fi
+
+    # output 链: 代理上传 (tcp+udp) 的字节数
+    local proxy_up=$(echo "$output" | grep "proxy_up" | grep -o 'bytes [0-9]*' | awk '{sum += $2} END {print sum+0}')
+
+    # input 链: 代理下载 (tcp+udp) 的字节数
+    local proxy_down=$(echo "$input" | grep "proxy_down" | grep -o 'bytes [0-9]*' | awk '{sum += $2} END {print sum+0}')
+
+    # 输出 JSON (处理为空的情况)
+    echo "{\"up\": ${proxy_up:-0}, \"down\": ${proxy_down:-0}, \"persistent\": true}"
+}
+
+read_counters
