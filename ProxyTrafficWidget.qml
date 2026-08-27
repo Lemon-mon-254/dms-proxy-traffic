@@ -7,7 +7,7 @@ import qs.Modules.Plugins
 PluginComponent {
     id: root
 
-    property string proxyPort: (pluginData.proxyPort !== undefined && pluginData.proxyPort !== "") ? pluginData.proxyPort : "2547"
+    property string proxyPort: (pluginData.proxyPort !== undefined && pluginData.proxyPort !== "") ? pluginData.proxyPort : "7890"
     readonly property string scriptPath: {
         var url = Qt.resolvedUrl("proxy-traffic-split").toString()
         return url.indexOf("file://") === 0 ? url.substring(7) : url

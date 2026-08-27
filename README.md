@@ -29,7 +29,7 @@ dms restart
 
 The plugin reads proxy traffic from nftables counters. Two steps are required:
 
-**1. Create the nftables counters (proxy port default `2547`)**
+**1. Create the nftables counters (proxy port default `7890`)**
 
 ```bash
 cd ~/.config/DankMaterialShell/plugins/ProxyTraffic
@@ -39,8 +39,10 @@ sudo ./setup-nftables.sh create
 You can override the port used by the rules:
 
 ```bash
-PROXY_PORT=7890 sudo ./setup-nftables.sh create
+PROXY_PORT=2547 sudo ./setup-nftables.sh create
 ```
+
+Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 
 **2. Grant passwordless read access to nftables** (so the bar widget can read counters without prompting)
 
@@ -54,7 +56,7 @@ This writes `/etc/sudoers.d/proxy-nft` with a NOPASSWD entry for `/usr/bin/nft`.
 
 | Setting | Default | Description |
 |---|---|---|
-| Proxy port | `2547` | Local proxy listen port (must match the port used to create nftables rules) |
+| Proxy port | `7890` | Local proxy listen port (must match the port used to create nftables rules; common: Clash `7890` · v2ray/xray `10808` · sing-box `1080`) |
 | Refresh interval | `2s` | Sampling frequency |
 | Show download rate | on | `↓ speed` on the bar |
 | Show upload rate | on | `↑ speed` on the bar |

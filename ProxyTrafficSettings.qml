@@ -26,9 +26,9 @@ PluginSettings {
     StringSetting {
         settingKey: "proxyPort"
         label: "代理端口"
-        description: "本地代理监听端口"
-        placeholder: "2547"
-        defaultValue: "2547"
+        description: "本地代理监听端口\n常见: Clash 7890 · v2ray/xray 10808 · sing-box 1080"
+        placeholder: "7890"
+        defaultValue: "7890"
     }
 
     SelectionSetting {

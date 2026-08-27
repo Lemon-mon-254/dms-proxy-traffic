@@ -7,10 +7,10 @@
 #   sudo ./setup-nftables.sh show          # 显示当前规则
 #   sudo ./setup-nftables.sh sudoers       # 授权无密码读取 nftables
 #
-# 代理端口通过环境变量 PROXY_PORT 指定, 默认 2547:
-#   PROXY_PORT=7890 sudo ./setup-nftables.sh create
+# 代理端口通过环境变量 PROXY_PORT 指定, 默认 7890 (常见: Clash 7890 · v2ray 10808 · sing-box 1080):
+#   PROXY_PORT=2547 sudo ./setup-nftables.sh create
 
-PROXY_PORT="${PROXY_PORT:-2547}"
+PROXY_PORT="${PROXY_PORT:-7890}"
 
 create_rules() {
     echo "创建 nftables 规则 (代理端口: $PROXY_PORT)..."
