@@ -57,6 +57,19 @@ PluginComponent {
         let s = null
         try { s = JSON.parse(text.trim()) } catch (e) { root.sampleOk = false; return }
         if (!s || typeof s.up !== "number") { root.sampleOk = false; return }
+        if (s.persistent !== true) {
+            // 规则未就绪（nft 缺失 / 表不存在 / 无权限）
+            root.sampleOk = false
+            root.persistent = false
+            root.rateUp = 0
+            root.rateDown = 0
+            root.totalUp = 0
+            root.totalDown = 0
+            root.lastTs = 0
+            root.lastUp = -1
+            root.lastDown = -1
+            return
+        }
         const now = Date.now() / 1000
         if (root.lastTs > 0 && now > root.lastTs && root.lastUp >= 0 && root.persistent === (s.persistent === true)) {
             const dt = now - root.lastTs
@@ -213,6 +226,60 @@ PluginComponent {
                     id: contentCol
                     anchors.fill: parent
                     spacing: Theme.spacingM
+
+                    // Setup hint (shown while nftables rules are not ready)
+                    StyledRect {
+                        id: setupHint
+                        width: parent.width
+                        visible: !root.sampleOk
+                        implicitHeight: setupHintCol.implicitHeight + Theme.spacingL * 2
+                        radius: Theme.cornerRadius
+                        color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.12)
+                        border.color: Theme.warning
+                        border.width: 1
+
+                        Column {
+                            id: setupHintCol
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingL
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                text: root.tr("需要先完成一次性安装", "One-time setup required")
+                                font.pixelSize: Theme.fontSizeMedium
+                                font.weight: Font.Bold
+                                color: Theme.warning
+                                wrapMode: Text.WordWrap
+                                width: parent.width
+                            }
+
+                            StyledText {
+                                text: root.tr("请在终端运行并设置正确的代理端口：", "Run in a terminal (set your actual proxy port):")
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceVariantText
+                                wrapMode: Text.WordWrap
+                                width: parent.width
+                            }
+
+                            StyledRect {
+                                width: parent.width
+                                radius: Theme.cornerRadius - 2
+                                color: Theme.surfaceContainerHigh
+                                implicitHeight: cmdText.implicitHeight + Theme.spacingM * 2
+
+                                StyledText {
+                                    id: cmdText
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.spacingM
+                                    text: "sudo PROXY_PORT=" + root.proxyPort + " ./setup-nftables.sh install"
+                                    font.family: "monospace"
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.surfaceText
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
+                    }
 
                     // Speed cards - side by side
                     Row {

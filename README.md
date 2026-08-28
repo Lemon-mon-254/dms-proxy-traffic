@@ -29,30 +29,29 @@ dms restart
 
 ## Quick start
 
-The plugin reads proxy traffic from nftables counters. Two steps are required:
-
-**1. Create the nftables counters (proxy port default `7890`)**
+Run the one-command installer. It installs `nft` if missing, creates the nftables counters for your proxy port, makes them **persistent** across reboots, and grants passwordless read access:
 
 ```bash
 cd ~/.config/DankMaterialShell/plugins/ProxyTraffic
-sudo ./setup-nftables.sh create
+sudo ./setup-nftables.sh install
 ```
 
-You can override the port used by the rules:
+Use `PROXY_PORT` if your proxy listens on a non-default port:
 
 ```bash
-PROXY_PORT=2547 sudo ./setup-nftables.sh create
+PROXY_PORT=2547 sudo ./setup-nftables.sh install
 ```
 
 Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 
-**2. Grant passwordless read access to nftables** (so the bar widget can read counters without prompting)
+`install` performs the following (each also available individually):
+- detects/installs `nft` (`nftables`)
+- creates the rule file `/etc/nftables.d/proxy-traffic.nft` for your port
+- applies the counters immediately
+- enables a systemd service (`nft-proxy-traffic.service`) so counters reload on boot
+- writes `/etc/sudoers.d/proxy-nft` so the widget reads counters without prompting
 
-```bash
-sudo ./setup-nftables.sh sudoers
-```
-
-This writes `/etc/sudoers.d/proxy-nft` with a NOPASSWD entry for `/usr/bin/nft`.
+> **Note:** re-running `install` (or `create`) resets the counters to zero. Set the plugin's *Proxy port* to the same value you used here.
 
 ## Configuration
 
@@ -65,17 +64,18 @@ This writes `/etc/sudoers.d/proxy-nft` with a NOPASSWD entry for `/usr/bin/nft`.
 | Show cumulative | off | Shows total proxy traffic on the bar |
 | Show port | off | Appends `:port` |
 
-> **Important:** the *Proxy port* in settings should match the port used when running `setup-nftables.sh create`, otherwise counters will not match.
+> **Important:** the *Proxy port* in settings should match the port used when running `setup-nftables.sh install`, otherwise counters will not match.
 
 ## Managing rules
 
 ```bash
-sudo ./setup-nftables.sh show      # inspect current counters
-sudo ./setup-nftables.sh delete    # remove counters (cumulative reset)
-sudo ./setup-nftables.sh create    # re-create counters (also resets totals)
+sudo ./setup-nftables.sh show          # inspect current counters & service status
+sudo ./setup-nftables.sh create        # re-create/apply counters (resets totals)
+sudo ./setup-nftables.sh delete        # remove runtime counters (cumulative reset)
+sudo ./setup-nftables.sh uninstall     # remove counters + service (+ optionally sudoers)
 ```
 
-The counters are **persistent** (maintained in the kernel until reboot or table deletion), so the plugin shows historical cumulative traffic since the table was created.
+The counters are **persistent** (a systemd service reloads them on boot), so the plugin shows historical cumulative traffic since the table was created, across reboots.
 
 ## How it works
 

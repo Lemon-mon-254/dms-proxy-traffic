@@ -29,30 +29,29 @@ dms restart
 
 ## 快速开始
 
-插件从 nftables 计数器读取代理流量，需要两步：
-
-**1. 创建 nftables 计数器（代理端口默认 `7890`）**
+运行一键安装命令。它会：检测/安装 `nft`（如缺失）、为你代理端口创建 nftables 计数器、将其**开机持久化**、并授予无密码读取权限：
 
 ```bash
 cd ~/.config/DankMaterialShell/plugins/ProxyTraffic
-sudo ./setup-nftables.sh create
+sudo ./setup-nftables.sh install
 ```
 
-可以通过环境变量覆盖规则所用的端口：
+如果你的代理监听在非默认端口，用 `PROXY_PORT` 指定：
 
 ```bash
-PROXY_PORT=2547 sudo ./setup-nftables.sh create
+PROXY_PORT=2547 sudo ./setup-nftables.sh install
 ```
 
 常见代理端口：**Clash 7890** · v2ray/xray 10808 · sing-box 1080。
 
-**2. 授予无密码读取 nftables 的权限**（这样栏上组件读取计数器时不会弹出密码提示）
+`install` 一次完成下面几步（也可单独使用）：
+- 检测并安装 `nft`（`nftables`）
+- 为你的端口生成规则文件 `/etc/nftables.d/proxy-traffic.nft`
+- 立即应用计数器
+- 启用 systemd 服务（`nft-proxy-traffic.service`），开机自动加载
+- 写入 `/etc/sudoers.d/proxy-nft`，让组件无密码读取计数器
 
-```bash
-sudo ./setup-nftables.sh sudoers
-```
-
-该命令会向 `/etc/sudoers.d/proxy-nft` 写入一条针对 `/usr/bin/nft` 的 NOPASSWD 配置。
+> **注意：** 重新运行 `install`（或 `create`）会把计数器清零。请把插件中的"代理端口"设置为与本次相同。
 
 ## 配置项
 
@@ -65,17 +64,18 @@ sudo ./setup-nftables.sh sudoers
 | 累计流量 | 关 | 栏上显示代理累计上下行流量 |
 | 端口号 | 关 | 追加显示 `:端口` |
 
-> **重要：** 设置中的"代理端口"应与运行 `setup-nftables.sh create` 时的端口一致，否则计数器将不匹配。
+> **重要：** 设置中的"代理端口"应与运行 `setup-nftables.sh install` 时的端口一致，否则计数器将不匹配。
 
 ## 规则管理
 
 ```bash
-sudo ./setup-nftables.sh show      # 查看当前计数器
-sudo ./setup-nftables.sh delete    # 删除计数器（累计清零）
-sudo ./setup-nftables.sh create    # 重新创建计数器（同样会清零累计）
+sudo ./setup-nftables.sh show          # 查看当前计数器与服务状态
+sudo ./setup-nftables.sh create        # 重新创建/应用计数器（累计清零）
+sudo ./setup-nftables.sh delete        # 删除运行时计数器（累计清零）
+sudo ./setup-nftables.sh uninstall     # 移除计数器 + 持久化服务（可选移除免密）
 ```
 
-计数器是**持久**的（在内核中保持，直到重启或删除表），因此插件会显示自创建以来累计的历史流量。
+计数器是**持久**的（由 systemd 服务在开机时重新加载），因此插件会显示自创建以来、跨重启累计的历史流量。
 
 ## 运行原理
 
