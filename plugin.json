@@ -1,7 +1,7 @@
 {
     "id": "proxyTraffic",
     "name": "Proxy Traffic",
-    "description": "监控经过本地代理端口的实时网速与累计流量,通过 nftables 统计代理流量",
+    "description": "Realtime throughput and cumulative traffic of your local proxy, tracked via nftables",
     "version": "1.2.1",
     "author": "lemonmon",
     "icon": "swap_vert",

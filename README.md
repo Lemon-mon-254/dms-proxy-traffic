@@ -92,9 +92,9 @@ The QML widget diffs consecutive samples to derive live rates, matching the diff
 
 ## Screenshot
 
-![ProxyTraffic overview](screenshots/4.png)
+![ProxyTraffic overview](screenshots/1.png)
 
-![ProxyTraffic popout](screenshots/3.png)
+![ProxyTraffic popout](screenshots/2.png)
 
 ## Requirements
 
