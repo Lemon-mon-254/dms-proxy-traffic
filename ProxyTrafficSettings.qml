@@ -7,8 +7,19 @@ PluginSettings {
     id: root
     pluginId: "proxyTraffic"
 
-    property bool isZh: pluginData.language !== "en"
+    property string currentLang: String(root.loadValue("language", "zh"))
+    readonly property bool isZh: root.currentLang !== "en"
     function tr(zh, en) { return root.isZh ? zh : en }
+
+    onPluginServiceChanged: {
+        if (pluginService) {
+            root.currentLang = String(root.loadValue("language", "zh"));
+        }
+    }
+
+    onSettingChanged: {
+        root.currentLang = String(root.loadValue("language", "zh"));
+    }
 
     StyledText {
         width: parent.width
