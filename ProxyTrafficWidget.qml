@@ -23,6 +23,7 @@ PluginComponent {
     property bool showPort: pluginData.showPort === true
     property bool showDestinations: pluginData.showDestinations === true
     property string xrayAccessLog: (pluginData.xrayAccessLog !== undefined && pluginData.xrayAccessLog !== "") ? pluginData.xrayAccessLog : ""
+    property bool isZh: pluginData.language !== "en"
 
     property real rateUp: 0
     property real rateDown: 0
@@ -49,6 +50,8 @@ PluginComponent {
         if (b >= 1024) return (b / 1024).toFixed(1) + " KB"
         return Math.round(b) + " B"
     }
+
+    function tr(zh, en) { return root.isZh ? zh : en }
 
     function applySample(text) {
         let s = null
@@ -198,8 +201,8 @@ PluginComponent {
     popoutContent: Component {
         PopoutComponent {
             id: popoutRoot
-            headerText: "代理流量监控"
-            detailsText: "127.0.0.1:" + root.proxyPort + (root.persistent ? " · 持久统计" : " · 会话统计")
+            headerText: root.tr("代理流量监控", "Proxy Traffic")
+            detailsText: "127.0.0.1:" + root.proxyPort + (root.persistent ? root.tr(" · 持久统计", " · persistent") : root.tr(" · 会话统计", " · session"))
             showCloseButton: true
 
             Item {
@@ -243,7 +246,7 @@ PluginComponent {
                                 }
 
                                 StyledText {
-                                    text: "下载"
+                                    text: root.tr("下载", "Download")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -278,7 +281,7 @@ PluginComponent {
                                 }
 
                                 StyledText {
-                                    text: "上传"
+                                    text: root.tr("上传", "Upload")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -305,7 +308,7 @@ PluginComponent {
                                 spacing: 2
 
                                 StyledText {
-                                    text: "累计下行"
+                                    text: root.tr("累计下行", "Total down")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                 }
@@ -324,7 +327,7 @@ PluginComponent {
                                 spacing: 2
 
                                 StyledText {
-                                    text: "累计上行"
+                                    text: root.tr("累计上行", "Total up")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                 }
@@ -353,14 +356,14 @@ PluginComponent {
                             spacing: Theme.spacingS
 
                             StyledText {
-                                text: "流量去向"
+                                text: root.tr("流量去向", "Destinations")
                                 font.pixelSize: Theme.fontSizeMedium
                                 font.weight: Font.Bold
                                 color: Theme.surfaceText
                             }
 
                             StyledText {
-                                text: "目标域名"
+                                text: root.tr("目标域名", "Domains")
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceVariantText
                             }
@@ -381,7 +384,7 @@ PluginComponent {
                             }
 
                             StyledText {
-                                text: "访问进程"
+                                text: root.tr("访问进程", "Processes")
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceVariantText
                             }

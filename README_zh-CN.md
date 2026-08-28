@@ -92,7 +92,9 @@ QML 组件对连续采样做差分运算，从而得到实时速率。
 
 ## 屏幕截图
 
-（待补充截图）
+![ProxyTraffic 概览](screenshots/4.png)
+
+![ProxyTraffic 弹窗](screenshots/3.png)
 
 ## 环境要求
 
