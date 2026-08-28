@@ -1,0 +1,64 @@
+#!/bin/bash
+# proxy-destination: 显示流量去向（目标域名 + 访问进程）
+# 用于 DMS ProxyTraffic 插件
+#
+# 目标域名来自 xray 的 access 日志（需在代理配置中开启 access 日志）
+# 访问进程来自 ss (iproute2)
+#
+# 输出格式:
+# {
+#   "destinations": [{"domain":"github.com","count":3}, ...],
+#   "processes": [{"name":"chrome","count":3}, ...]
+# }
+
+XRAY_ACCESS="${XRAY_ACCESS:-/home/lemonmon/.local/share/v2rayN/binConfigs/access.log}"
+PROXY_PORT="${PROXY_PORT:-7890}"
+
+# 聚合目标域名: 从 access 日志取 [socks -> proxy] 的目标 (最近 N 行)
+aggregate_destinations() {
+    local lines=()
+    if [ -f "$XRAY_ACCESS" ]; then
+        lines=$(tail -n 500 "$XRAY_ACCESS" \
+            | grep '\[socks -> proxy\]' \
+            | grep -oE 'accepted [^ ]+' \
+            | sed -E 's#^accepted (https?|tcp|udp)://##; s#^accepted (tcp|udp):##; s#^accepted ##; s#^//##' \
+            | awk -F'[/:]' '{print $1}' \
+            | grep -E '^[a-zA-Z0-9.-]+$')
+    fi
+
+    if [ -z "$lines" ]; then
+        echo "[]"
+        return 0
+    fi
+
+    # 聚合计数 (取前 10 个)
+    echo "$lines" | sort | uniq -c | sort -rn | head -10 \
+        | awk '{printf "{\"domain\":\"%s\",\"count\":%d},", $2, $1}'
+}
+
+# 聚合访问进程: ss 列出到代理端口的活跃连接进程
+aggregate_processes() {
+    local procs
+    # 从 ss 输出提取进程名: "steam",pid=123
+    procs=$(ss -tp "dport = :$PROXY_PORT" 2>/dev/null \
+        | grep -oE '"[a-zA-Z0-9._-]+",pid=' \
+        | sed -E 's/"|",pid=//g' )
+
+    if [ -z "$procs" ]; then
+        echo "[]"
+        return 0
+    fi
+
+    echo "$procs" | sort | uniq -c | sort -rn | head -10 \
+        | awk '{printf "{\"name\":\"%s\",\"count\":%d},", $2, $1}'
+}
+
+# 组装 JSON
+dest="$(aggregate_destinations)"
+proc="$(aggregate_processes)"
+
+# 去尾逗号
+dest="${dest%,}"
+proc="${proc%,}"
+
+echo "{\"destinations\":[${dest:-}],\"processes\":[${proc:-}]}"

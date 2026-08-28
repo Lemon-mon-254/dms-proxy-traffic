@@ -23,20 +23,20 @@ create_rules() {
     local conf="/tmp/proxy-traffic-nftables.conf"
     cat > "$conf" << EOF
 table inet proxy_stat {
-    chain output {
-        type filter hook output priority 0; policy accept;
-
-        # 出站上传: 发送到本地代理端口的流量
-        tcp dport $PROXY_PORT counter comment "proxy_up"
-        udp dport $PROXY_PORT counter comment "proxy_up"
-    }
-
     chain input {
         type filter hook input priority 0; policy accept;
 
-        # 入站下载: 来自本地代理端口的流量
-        tcp sport $PROXY_PORT counter comment "proxy_down"
-        udp sport $PROXY_PORT counter comment "proxy_down"
+        # 上传: 发往本地代理端口的数据 (dport = 代理端口)
+        tcp dport $PROXY_PORT counter comment "proxy-up"
+        udp dport $PROXY_PORT counter comment "proxy-up"
+    }
+
+    chain output {
+        type filter hook output priority 0; policy accept;
+
+        # 下载: 来自本地代理端口的数据 (sport = 代理端口)
+        tcp sport $PROXY_PORT counter comment "proxy-down"
+        udp sport $PROXY_PORT counter comment "proxy-down"
     }
 }
 EOF

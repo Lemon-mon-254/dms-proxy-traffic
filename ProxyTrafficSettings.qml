@@ -71,4 +71,19 @@ PluginSettings {
         description: "栏上显示 :端口"
         defaultValue: false
     }
+
+    ToggleSetting {
+        settingKey: "showDestinations"
+        label: "流量去向"
+        description: "弹出面板显示目标域名与访问进程\n(需代理开启 access 日志)"
+        defaultValue: false
+    }
+
+    StringSetting {
+        settingKey: "xrayAccessLog"
+        label: "代理访问日志路径"
+        description: "xray 的 access 日志文件,用于解析目标域名"
+        placeholder: "/home/lemonmon/.local/share/v2rayN/binConfigs/access.log"
+        defaultValue: "/home/lemonmon/.local/share/v2rayN/binConfigs/access.log"
+    }
 }

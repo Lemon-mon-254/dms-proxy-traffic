@@ -5,27 +5,31 @@
 # 需要 sudo 无密码权限读取 nftables:
 #   echo "$USER ALL=(root) NOPASSWD: /usr/bin/nft" | sudo tee /etc/sudoers.d/proxy-nft
 #
+# 规则方向(见 setup-nftables.sh):
+#   input 链  tcp/udp dport $PORT  => 上传 (proxy-up)
+#   output 链 tcp/udp sport $PORT  => 下载 (proxy-down)
+#
 # 输出格式: {"up": <上行字节>, "down": <下行字节>, "persistent": true}
 
-# 从 nftables 读取计数器 (sudo -n 非交互, 避免卡住等待密码)
 read_counters() {
-    local output input
-    output=$(sudo -n nft list chain inet proxy_stat output 2>/dev/null)
-    input=$(sudo -n nft list chain inet proxy_stat input 2>/dev/null)
+    local in_chain out_chain
+    # input 链: 上传 (def dport = 发往代理)
+    in_chain=$(sudo -n nft list chain inet proxy_stat input 2>/dev/null)
+    # output 链: 下载 (sport = 来自代理)
+    out_chain=$(sudo -n nft list chain inet proxy_stat output 2>/dev/null)
 
     # 无权限或表不存在时返回错误状态
-    if [ -z "$output" ] || [ -z "$input" ]; then
+    if [ -z "$in_chain" ] || [ -z "$out_chain" ]; then
         echo '{"up":0,"down":0,"persistent":false,"error":"nftables not accessible"}'
         return 1
     fi
 
-    # output 链: 代理上传 (tcp+udp) 的字节数
-    local proxy_up=$(echo "$output" | grep "proxy_up" | grep -o 'bytes [0-9]*' | awk '{sum += $2} END {print sum+0}')
+    # 上传: input 链中 proxy-up 计数器的字节 (tcp+udp)
+    local proxy_up=$(echo "$in_chain" | grep "proxy-up" | grep -o 'bytes [0-9]*' | awk '{sum += $2} END {print sum+0}')
 
-    # input 链: 代理下载 (tcp+udp) 的字节数
-    local proxy_down=$(echo "$input" | grep "proxy_down" | grep -o 'bytes [0-9]*' | awk '{sum += $2} END {print sum+0}')
+    # 下载: output 链中 proxy-down 计数器的字节 (tcp+udp)
+    local proxy_down=$(echo "$out_chain" | grep "proxy-down" | grep -o 'bytes [0-9]*' | awk '{sum += $2} END {print sum+0}')
 
-    # 输出 JSON (处理为空的情况)
     echo "{\"up\": ${proxy_up:-0}, \"down\": ${proxy_down:-0}, \"persistent\": true}"
 }
 

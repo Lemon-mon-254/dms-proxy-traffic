@@ -12,11 +12,17 @@ PluginComponent {
         var url = Qt.resolvedUrl("proxy-traffic-split").toString()
         return url.indexOf("file://") === 0 ? url.substring(7) : url
     }
+    readonly property string destScriptPath: {
+        var url = Qt.resolvedUrl("proxy-destination").toString()
+        return url.indexOf("file://") === 0 ? url.substring(7) : url
+    }
     property int refreshSec: (pluginData.refreshInterval !== undefined && pluginData.refreshInterval !== "") ? parseInt(pluginData.refreshInterval) : 2
     property bool showDownRate: pluginData.showDownRate !== false
     property bool showUpRate: pluginData.showUpRate !== false
     property bool showCumulative: pluginData.showCumulative === true
     property bool showPort: pluginData.showPort === true
+    property bool showDestinations: pluginData.showDestinations === true
+    property string xrayAccessLog: (pluginData.xrayAccessLog !== undefined && pluginData.xrayAccessLog !== "") ? pluginData.xrayAccessLog : ""
 
     property real rateUp: 0
     property real rateDown: 0
@@ -27,6 +33,9 @@ PluginComponent {
     property real lastUp: -1
     property real lastDown: -1
     property double lastTs: 0
+
+    property var destinations: []
+    property var processes: []
 
     function fmtSpeed(bps) {
         if (bps >= 1048576) return (bps / 1048576).toFixed(1) + " MB/s"
@@ -62,6 +71,15 @@ PluginComponent {
         root.sampleOk = true
     }
 
+    function applyDest(text) {
+        if (!root.showDestinations) return
+        let s = null
+        try { s = JSON.parse(text.trim()) } catch (e) { return }
+        if (!s || !Array.isArray(s.destinations)) return
+        root.destinations = s.destinations
+        root.processes = Array.isArray(s.processes) ? s.processes : []
+    }
+
     Process {
         id: sampler
         command: ["sh", "-c", "exec '" + root.scriptPath + "'"]
@@ -71,12 +89,28 @@ PluginComponent {
         }
     }
 
+    Process {
+        id: destSampler
+        command: ["sh", "-c", {
+            var c = "XRAY_ACCESS='" + root.xrayAccessLog + "' " +
+                    "PROXY_PORT='" + root.proxyPort + "' exec '" + root.destScriptPath + "'"
+            return c
+        }]
+        stdout: StdioCollector {
+            id: destCollector
+            onStreamFinished: root.applyDest(destCollector.text)
+        }
+    }
+
     Timer {
         interval: Math.max(1, root.refreshSec) * 1000
         running: true
         repeat: true
         triggeredOnStart: true
-        onTriggered: sampler.running = true
+        onTriggered: {
+            sampler.running = true
+            if (root.showDestinations) destSampler.running = true
+        }
     }
 
     horizontalBarPill: Component {
@@ -303,11 +337,76 @@ PluginComponent {
                             }
                         }
                     }
+
+                    // Traffic destinations (流量去向)
+                    StyledRect {
+                        visible: root.showDestinations
+                        width: parent.width
+                        implicitHeight: destCol.implicitHeight + Theme.spacingM * 2
+                        radius: Theme.cornerRadius
+                        color: Theme.surfaceContainerHigh
+
+                        Column {
+                            id: destCol
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingM
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                text: "流量去向"
+                                font.pixelSize: Theme.fontSizeMedium
+                                font.weight: Font.Bold
+                                color: Theme.surfaceText
+                            }
+
+                            StyledText {
+                                text: "目标域名"
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceVariantText
+                            }
+
+                            Column {
+                                spacing: 2
+                                Repeater {
+                                    model: root.destinations
+                                    StyledText {
+                                        required property string domain
+                                        required property int count
+                                        text: "• " + domain + "  (" + count + ")"
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        elide: Text.ElideRight
+                                        color: Theme.surfaceText
+                                    }
+                                }
+                            }
+
+                            StyledText {
+                                text: "访问进程"
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceVariantText
+                            }
+
+                            Column {
+                                spacing: 2
+                                Repeater {
+                                    model: root.processes
+                                    StyledText {
+                                        required property string name
+                                        required property int count
+                                        text: "• " + name + "  (" + count + ")"
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        elide: Text.ElideRight
+                                        color: Theme.surfaceText
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    popoutWidth: 340
-    popoutHeight: 280
+    popoutWidth: 360
+    popoutHeight: root.showDestinations ? 560 : 280
 }
