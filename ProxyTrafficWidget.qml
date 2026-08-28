@@ -91,11 +91,11 @@ PluginComponent {
 
     Process {
         id: destSampler
-        command: ["sh", "-c", {
-            var c = "XRAY_ACCESS='" + root.xrayAccessLog + "' " +
-                    "PROXY_PORT='" + root.proxyPort + "' exec '" + root.destScriptPath + "'"
-            return c
-        }]
+        command: [
+            "sh", "-c",
+            "XRAY_ACCESS='" + root.xrayAccessLog + "' " +
+            "PROXY_PORT='" + root.proxyPort + "' exec '" + root.destScriptPath + "'"
+        ]
         stdout: StdioCollector {
             id: destCollector
             onStreamFinished: root.applyDest(destCollector.text)
