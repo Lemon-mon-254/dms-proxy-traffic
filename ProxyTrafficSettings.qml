@@ -104,6 +104,21 @@ PluginSettings {
         defaultValue: false
     }
 
+    ToggleSetting {
+        settingKey: "showRedirect"
+        label: root.tr("分流统计", "Redirect")
+        description: root.tr("弹出面板显示 xray 出站的代理/直连流量\n(仅 xray/v2rayN)", "Show proxy vs direct traffic breakdown\n(xray/v2rayN only)")
+        defaultValue: false
+    }
+
+    StringSetting {
+        settingKey: "xrayApiPort"
+        label: root.tr("xray API 端口", "xray API port")
+        description: root.tr("xray 的 API inbound 端口,用于读取分流统计", "xray API inbound port, used to read redirect stats")
+        placeholder: "2551"
+        defaultValue: "2551"
+    }
+
     StringSetting {
         settingKey: "xrayAccessLog"
         label: root.tr("代理访问日志路径", "Proxy access log path")

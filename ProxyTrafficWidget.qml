@@ -16,13 +16,19 @@ PluginComponent {
         var url = Qt.resolvedUrl("proxy-destination").toString()
         return url.indexOf("file://") === 0 ? url.substring(7) : url
     }
+    readonly property string redirectScriptPath: {
+        var url = Qt.resolvedUrl("proxy-redirect-stats").toString()
+        return url.indexOf("file://") === 0 ? url.substring(7) : url
+    }
     property int refreshSec: (pluginData.refreshInterval !== undefined && pluginData.refreshInterval !== "") ? parseInt(pluginData.refreshInterval) : 2
     property bool showDownRate: pluginData.showDownRate !== false
     property bool showUpRate: pluginData.showUpRate !== false
     property bool showCumulative: pluginData.showCumulative === true
     property bool showPort: pluginData.showPort === true
     property bool showDestinations: pluginData.showDestinations === true
+    property bool showRedirect: pluginData.showRedirect === true
     property string xrayAccessLog: (pluginData.xrayAccessLog !== undefined && pluginData.xrayAccessLog !== "") ? pluginData.xrayAccessLog : ""
+    property string xrayApiPort: (pluginData.xrayApiPort !== undefined && pluginData.xrayApiPort !== "") ? pluginData.xrayApiPort : "2551"
     property bool isZh: pluginData.language !== "en"
 
     property real rateUp: 0
@@ -37,6 +43,12 @@ PluginComponent {
 
     property var destinations: []
     property var processes: []
+
+    property bool redirectReady: false
+    property real redirectProxyDown: 0
+    property real redirectProxyUp: 0
+    property real redirectDirectDown: 0
+    property real redirectDirectUp: 0
 
     function fmtSpeed(bps) {
         if (bps >= 1048576) return (bps / 1048576).toFixed(1) + " MB/s"
@@ -96,6 +108,22 @@ PluginComponent {
         root.processes = Array.isArray(s.processes) ? s.processes : []
     }
 
+    function applyRedirect(text) {
+        if (!root.showRedirect) return
+        let s = null
+        try { s = JSON.parse(text.trim()) } catch (e) { return }
+        if (!s || typeof s.ready !== "boolean") return
+        if (!s.ready || !s.proxy || !s.direct) {
+            root.redirectReady = false
+            return
+        }
+        root.redirectProxyDown = Number(s.proxy.down) || 0
+        root.redirectProxyUp = Number(s.proxy.up) || 0
+        root.redirectDirectDown = Number(s.direct.down) || 0
+        root.redirectDirectUp = Number(s.direct.up) || 0
+        root.redirectReady = true
+    }
+
     Process {
         id: sampler
         command: ["sh", "-c", "exec '" + root.scriptPath + "'"]
@@ -118,6 +146,18 @@ PluginComponent {
         }
     }
 
+    Process {
+        id: redirectSampler
+        command: [
+            "sh", "-c",
+            "XRAY_API_PORT='" + root.xrayApiPort + "' exec '" + root.redirectScriptPath + "'"
+        ]
+        stdout: StdioCollector {
+            id: redirectCollector
+            onStreamFinished: root.applyRedirect(redirectCollector.text)
+        }
+    }
+
     Timer {
         interval: Math.max(1, root.refreshSec) * 1000
         running: true
@@ -126,6 +166,7 @@ PluginComponent {
         onTriggered: {
             sampler.running = true
             if (root.showDestinations) destSampler.running = true
+            if (root.showRedirect) redirectSampler.running = true
         }
     }
 
@@ -472,11 +513,135 @@ PluginComponent {
                             }
                         }
                     }
+
+                    // Redirect breakdown (代理 vs 直连 分流) - xray optional
+                    StyledRect {
+                        visible: root.showRedirect
+                        width: parent.width
+                        implicitHeight: redirectCol.implicitHeight + Theme.spacingM * 2
+                        radius: Theme.cornerRadius
+                        color: Theme.surfaceContainerHigh
+
+                        Column {
+                            id: redirectCol
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingM
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                text: root.tr("分流统计", "Redirect")
+                                font.pixelSize: Theme.fontSizeMedium
+                                font.weight: Font.Bold
+                                color: Theme.surfaceText
+                            }
+
+                            // not ready hint
+                            StyledText {
+                                visible: !root.redirectReady
+                                text: root.tr("xray 统计不可用\n请确认 API 端口正确 (默认 2551) 且 xray 已开启 outbound 流量统计",
+                                              "xray stats unavailable\nCheck API port (default 2551) and that xray outbound stats are enabled")
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.warning
+                                wrapMode: Text.WordWrap
+                                width: parent.width
+                            }
+
+                            Column {
+                                visible: root.redirectReady
+                                width: parent.width
+                                spacing: Theme.spacingS
+
+                                // header row
+                                Row {
+                                    width: parent.width
+                                    spacing: Theme.spacingS
+                                    StyledText {
+                                        width: parent.width * 0.4
+                                        text: root.tr("出口", "Out")
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        font.weight: Font.Medium
+                                        color: Theme.surfaceVariantText
+                                    }
+                                    StyledText {
+                                        width: parent.width * 0.3
+                                        horizontalAlignment: Text.AlignRight
+                                        text: root.tr("下行", "↓")
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
+                                    StyledText {
+                                        width: parent.width * 0.3
+                                        horizontalAlignment: Text.AlignRight
+                                        text: root.tr("上行", "↑")
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
+                                }
+
+                                // proxy row
+                                Row {
+                                    width: parent.width
+                                    spacing: Theme.spacingS
+                                    StyledText {
+                                        width: parent.width * 0.4
+                                        text: root.tr("代理", "Proxy")
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        font.weight: Font.Medium
+                                        color: Theme.primary
+                                    }
+                                    StyledText {
+                                        width: parent.width * 0.3
+                                        horizontalAlignment: Text.AlignRight
+                                        text: root.fmtBytes(root.redirectProxyDown)
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceText
+                                    }
+                                    StyledText {
+                                        width: parent.width * 0.3
+                                        horizontalAlignment: Text.AlignRight
+                                        text: root.fmtBytes(root.redirectProxyUp)
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceText
+                                    }
+                                }
+
+                                // direct row
+                                Row {
+                                    width: parent.width
+                                    spacing: Theme.spacingS
+                                    StyledText {
+                                        width: parent.width * 0.4
+                                        text: root.tr("直连", "Direct")
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        font.weight: Font.Medium
+                                        color: Theme.error
+                                    }
+                                    StyledText {
+                                        width: parent.width * 0.3
+                                        horizontalAlignment: Text.AlignRight
+                                        text: root.fmtBytes(root.redirectDirectDown)
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceText
+                                    }
+                                    StyledText {
+                                        width: parent.width * 0.3
+                                        horizontalAlignment: Text.AlignRight
+                                        text: root.fmtBytes(root.redirectDirectUp)
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceText
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
     popoutWidth: 360
-    popoutHeight: root.showDestinations ? 560 : 280
+    popoutHeight: (root.showDestinations && root.showRedirect) ? 720
+                 : root.showDestinations ? 560
+                 : root.showRedirect ? 420
+                 : 280
 }

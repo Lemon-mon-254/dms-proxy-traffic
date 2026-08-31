@@ -9,6 +9,7 @@
 - **栏上胶囊** — 实时代理下载/上传速度（`↓1.2 MB/s ↑45 KB/s`）
 - **弹出面板** — 点击胶囊查看详细的速率与累计流量（下行/上行）
 - **仅统计代理** — 只统计经过本地代理端口的流量
+- **分流统计（xray）** — 可选的按出口统计，从 xray 的 `/debug/vars` 读取代理/直连各自的累计字节
 - **可配置显示**：在栏上切换 下载速率 / 上传速率 / 累计流量 / 端口号
 - 可调刷新间隔（1–5 秒）
 - 同时支持横向和纵向工具栏
@@ -63,8 +64,23 @@ PROXY_PORT=2547 sudo ./setup-nftables.sh install
 | 上传速率 | 开 | 栏上显示 `↑ 速度` |
 | 累计流量 | 关 | 栏上显示代理累计上下行流量 |
 | 端口号 | 关 | 追加显示 `:端口` |
+| 流量去向 | 关 | 弹出面板显示目标域名与访问进程（需代理开启 access 日志） |
+| 分流统计（xray） | 关 | 弹出面板显示 xray 出站的代理/直连累计字节 |
+| xray API 端口 | `2551` | xray API inbound 端口，用于分流视图 |
 
 > **重要：** 设置中的"代理端口"应与运行 `setup-nftables.sh install` 时的端口一致，否则计数器将不匹配。
+
+## 分流统计（仅 xray，可选）
+
+启用后，弹出面板会按 xray 的每个出站（`proxy` vs `direct`）显示流出了多少流量，数据来自 xray 内置的 expvar 端点：
+
+```bash
+http://127.0.0.1:<xray-api-port>/debug/vars   # -> .stats.outbound.{proxy,direct}.{downlink,uplink}
+```
+
+- 需要 xray/v2rayN 已开启出站流量统计（`policy.system.statsOutboundUplink/Downlink`，v2rayN 默认开启），且存在 API inbound（默认 `2551`）。
+- 该视图无需 nftables 规则；是对 nftables 计数器的补充（而非替代）。
+- 端口不可达时，弹出面板会显示"xray 统计不可用"提示，不会报错。
 
 ## 规则管理
 
@@ -101,6 +117,7 @@ QML 组件对连续采样做差分运算，从而得到实时速率。
 - DankMaterialShell >= 1.4.0
 - `nft`（nftables）、`sudo`
 - 一个监听在已配置端口上的本地代理（例如 v2ray/xray/sing-box/clash）
+- 可选（仅分流视图）：`curl` + `jq`，以及 xray/v2rayN 代理
 
 ## 许可证
 

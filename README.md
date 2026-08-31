@@ -9,6 +9,7 @@ A [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) bar widg
 - **Bar pill** — live proxy download/upload speed (`↓1.2 MB/s ↑45 KB/s`)
 - **Popout panel** — click the pill for detailed rates and cumulative traffic (down/up)
 - **Proxy-only** — only counts traffic flowing through the local proxy port
+- **Redirect breakdown (xray)** — optional per-outbound proxy vs direct byte totals read from xray's StatsService (`/debug/vars`)
 - **Configurable display**: toggle download rate / upload rate / cumulative traffic / port on the bar
 - Adjustable refresh interval (1–5 s)
 - Works with horizontal and vertical bars
@@ -63,8 +64,23 @@ Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 | Show upload rate | on | `↑ speed` on the bar |
 | Show cumulative | off | Shows total proxy traffic on the bar |
 | Show port | off | Appends `:port` |
+| Destinations | off | Popout shows target domains & processes (proxy access log required) |
+| Redirect (xray) | off | Popout shows proxy vs direct byte totals per xray outbound |
+| xray API port | `2551` | xray API inbound port, used for the redirect view |
 
 > **Important:** the *Proxy port* in settings should match the port used when running `setup-nftables.sh install`, otherwise counters will not match.
+
+## Redirect breakdown (xray only, optional)
+
+When enabled, the popout shows how much traffic left through each xray outbound (`proxy` vs `direct`), read from xray's built-in expvar endpoint:
+
+```bash
+http://127.0.0.1:<xray-api-port>/debug/vars   # -> .stats.outbound.{proxy,direct}.{downlink,uplink}
+```
+
+- Requires xray/v2rayN to have outbound traffic stats enabled (`policy.system.statsOutboundUplink/Downlink`, enabled by default in v2rayN) and an API inbound (default `2551`).
+- No nftables rules needed for this view; it supplements (not replaces) the nftables counter.
+- If the port is unreachable, the popout shows a *"xray stats unavailable"* hint instead of failing.
 
 ## Managing rules
 
@@ -101,6 +117,7 @@ The QML widget diffs consecutive samples to derive live rates, matching the diff
 - DankMaterialShell >= 1.4.0
 - `nft` (nftables), `sudo`
 - A local proxy listening on the configured port (e.g. v2ray/xray/sing-box/clash)
+- Optional (redirect view only): `curl` + `jq`, and an xray/v2rayN proxy
 
 ## License
 
