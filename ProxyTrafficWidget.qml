@@ -27,6 +27,15 @@ PluginComponent {
     property bool showPort: pluginData.showPort === true
     property bool showDestinations: pluginData.showDestinations === true
     property bool showRedirect: pluginData.showRedirect === true
+    property bool showSpeed: pluginData.showSpeed !== false
+    property bool showCumulCard: pluginData.showCumulCard !== false
+    property bool showToday: pluginData.showToday !== false
+    property int chartDays: (pluginData.chartDays !== undefined && pluginData.chartDays !== "") ? parseInt(pluginData.chartDays) : 7
+    readonly property var cardOrder: {
+        var order = pluginData.cardOrder
+        if (Array.isArray(order) && order.length > 0) return order
+        return ["speed", "cumulative", "today", "destinations", "redirect"]
+    }
     property string xrayAccessLog: (pluginData.xrayAccessLog !== undefined && pluginData.xrayAccessLog !== "") ? pluginData.xrayAccessLog : ""
     property string xrayApiPort: (pluginData.xrayApiPort !== undefined && pluginData.xrayApiPort !== "") ? pluginData.xrayApiPort : "2551"
     property bool isZh: pluginData.language !== "en"
@@ -50,6 +59,79 @@ PluginComponent {
     property real redirectDirectDown: 0
     property real redirectDirectUp: 0
 
+    // ── Daily usage (今日统计) ──
+    property string todayKey: ""
+    property real todayUp: 0
+    property real todayDown: 0
+    property var dailyHistory: ({})
+    property bool dailyLoaded: false
+
+    function todayDateKey() {
+        return Qt.formatDate(new Date(), "yyyy-MM-dd")
+    }
+
+    function loadDaily() {
+        if (!root.pluginService || root.dailyLoaded) return
+        try {
+            var days = root.pluginService.loadPluginState(root.pluginId, "daily", {})
+            root.dailyHistory = (days && typeof days === "object") ? days : {}
+        } catch (e) { root.dailyHistory = {} }
+        root.todayKey = root.todayDateKey()
+        if (root.dailyHistory[root.todayKey]) {
+            root.todayDown = Number(root.dailyHistory[root.todayKey].down) || 0
+            root.todayUp = Number(root.dailyHistory[root.todayKey].up) || 0
+        } else {
+            root.todayDown = 0
+            root.todayUp = 0
+        }
+        root.dailyLoaded = true
+    }
+
+    function persistDaily() {
+        if (!root.pluginService || !root.dailyLoaded) return
+        root.rolloverDaily()
+        root.dailyHistory[root.todayKey] = { down: root.todayDown, up: root.todayUp }
+        try {
+            root.pluginService.savePluginState(root.pluginId, "daily", root.dailyHistory)
+        } catch (e) {}
+    }
+
+    function rolloverDaily() {
+        var k = root.todayDateKey()
+        if (k !== root.todayKey) {
+            // 归档前一天的记录
+            if (root.todayKey) {
+                root.dailyHistory[root.todayKey] = { down: root.todayDown, up: root.todayUp }
+            }
+            root.todayKey = k
+            root.todayDown = 0
+            root.todayUp = 0
+        }
+    }
+
+    function accumulateDaily(dUp, dDown) {
+        if (!root.dailyLoaded) return
+        root.rolloverDaily()
+        if (dUp > 0) root.todayUp += dUp
+        if (dDown > 0) root.todayDown += dDown
+        root.dailyHistory[root.todayKey] = { down: root.todayDown, up: root.todayUp }
+    }
+
+    // Sorted recent daily series (chronological), up to chartDays entries
+    readonly property var chartSeries: (function() {
+        var keys = Object.keys(root.dailyHistory)
+        keys.sort()
+        var n = Math.max(1, root.chartDays)
+        var slice = keys.slice(-n)
+        var series = []
+        for (var i = 0; i < slice.length; i++) {
+            var k = slice[i]
+            var d = root.dailyHistory[k] || {}
+            series.push({ key: k, down: Number(d.down) || 0, up: Number(d.up) || 0 })
+        }
+        return series
+    })()
+
     function fmtSpeed(bps) {
         if (bps >= 1048576) return (bps / 1048576).toFixed(1) + " MB/s"
         if (bps >= 1024) return (bps / 1024).toFixed(0) + " KB/s"
@@ -63,7 +145,32 @@ PluginComponent {
         return Math.round(b) + " B"
     }
 
+    function shortDate(key) {
+        var p = String(key).split("-")
+        if (p.length >= 3) return parseInt(p[1]) + "/" + parseInt(p[2])
+        return key
+    }
+
     function tr(zh, en) { return root.isZh ? zh : en }
+
+    function cardVisible(id) {
+        if (id === "speed") return root.showSpeed
+        if (id === "cumulative") return root.showCumulCard
+        if (id === "today") return root.showToday
+        if (id === "chart") return false
+        if (id === "destinations") return root.showDestinations
+        if (id === "redirect") return root.showRedirect
+        return false
+    }
+
+    readonly property var cardModel: {
+        var list = []
+        for (var i = 0; i < root.cardOrder.length; i++) {
+            var id = root.cardOrder[i]
+            if (root.cardVisible(id)) list.push(id)
+        }
+        return list
+    }
 
     function applySample(text) {
         let s = null
@@ -89,6 +196,12 @@ PluginComponent {
             const dd = s.down - root.lastDown
             root.rateUp = du > 0 ? du / dt : 0
             root.rateDown = dd > 0 ? dd / dt : 0
+        }
+        // ── Daily accumulation (independent of rate calc) ──
+        if (root.lastUp >= 0) {
+            const dUp = s.up - root.lastUp
+            const dDown = s.down - root.lastDown
+            if (dUp > 0 || dDown > 0) root.accumulateDaily(dUp, dDown)
         }
         root.lastUp = s.up
         root.lastDown = s.down
@@ -169,6 +282,449 @@ PluginComponent {
             if (root.showRedirect) redirectSampler.running = true
         }
     }
+
+    // ── Delay init until pluginService is injected by DMS ──
+    Timer {
+        id: initTimer
+        interval: 500
+        repeat: true
+        running: true
+        onTriggered: {
+            if (root.pluginService) {
+                root.loadDaily()
+                if (root.dailyLoaded) initTimer.running = false
+            }
+        }
+    }
+
+    // ── Persist daily usage periodically (every 60s) and on component destroy ──
+    Timer {
+        interval: 60000
+        running: true
+        repeat: true
+        onTriggered: root.persistDaily()
+    }
+
+    Component.onDestruction: root.persistDaily()
+
+    function cardComponent(id) {
+        if (id === "speed") return speedCardCmp
+        if (id === "cumulative") return cumulativeCardCmp
+        if (id === "today") return todayCardCmp
+        if (id === "destinations") return destCardCmp
+        if (id === "redirect") return redirectCardCmp
+        return null
+    }
+
+    // ── Card Components (rendered by Repeater in content order) ──
+
+    Component {
+        id: speedCardCmp
+        Row {
+            width: parent ? parent.width : 0
+            spacing: Theme.spacingS
+
+            StyledRect {
+                width: (parent.width - Theme.spacingS) / 2
+                height: 80
+                radius: Theme.cornerRadius
+                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 4
+                    DankIcon {
+                        name: "arrow_downward"
+                        size: Theme.iconSize
+                        color: Theme.primary
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    StyledText {
+                        text: root.fmtSpeed(root.rateDown)
+                        font.pixelSize: Theme.fontSizeLarge
+                        font.weight: Font.Bold
+                        color: Theme.primary
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    StyledText {
+                        text: root.tr("下载", "Download")
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                }
+            }
+
+            StyledRect {
+                width: (parent.width - Theme.spacingS) / 2
+                height: 80
+                radius: Theme.cornerRadius
+                color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.15)
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 4
+                    DankIcon {
+                        name: "arrow_upward"
+                        size: Theme.iconSize
+                        color: Theme.error
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    StyledText {
+                        text: root.fmtSpeed(root.rateUp)
+                        font.pixelSize: Theme.fontSizeLarge
+                        font.weight: Font.Bold
+                        color: Theme.error
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    StyledText {
+                        text: root.tr("上传", "Upload")
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: cumulativeCardCmp
+        StyledRect {
+            width: parent ? parent.width : 0
+            implicitHeight: cumulRow.implicitHeight + Theme.spacingM * 2
+            radius: Theme.cornerRadius
+            color: Theme.surfaceContainerHigh
+
+            Row {
+                id: cumulRow
+                anchors.fill: parent
+                anchors.margins: Theme.spacingM
+                spacing: Theme.spacingM
+
+                Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+                    StyledText {
+                        text: root.tr("累计下行", "Total down")
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
+                    }
+                    StyledText {
+                        text: root.fmtBytes(root.totalDown)
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Font.Medium
+                        color: Theme.surfaceText
+                    }
+                }
+
+                Item { width: 1; height: 1; anchors.verticalCenter: parent.verticalCenter }
+
+                Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+                    StyledText {
+                        text: root.tr("累计上行", "Total up")
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
+                    }
+                    StyledText {
+                        text: root.fmtBytes(root.totalUp)
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Font.Medium
+                        color: Theme.surfaceText
+                    }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: todayCardCmp
+        StyledRect {
+            width: parent ? parent.width : 0
+            implicitHeight: todayCol2.implicitHeight + Theme.spacingM * 2
+            radius: Theme.cornerRadius
+            color: Theme.surfaceContainerHigh
+
+            Column {
+                id: todayCol2
+                anchors.fill: parent
+                anchors.margins: Theme.spacingM
+                spacing: Theme.spacingS
+
+                StyledText {
+                    text: root.tr("今日流量", "Today") + "  ↓" + root.fmtBytes(root.todayDown) + "  ↑" + root.fmtBytes(root.todayUp)
+                    font.pixelSize: Theme.fontSizeMedium
+                    font.weight: Font.Bold
+                    color: Theme.surfaceText
+                }
+
+                // ── History line chart (merged into History card) ──
+                StyledText {
+                    visible: root.chartSeries.length === 0
+                    text: root.tr("暂无历史数据", "No history yet")
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceVariantText
+                }
+
+                Canvas {
+                    id: todayChartCanvas
+                    visible: root.chartSeries.length > 0
+                    width: parent.width
+                    height: root.chartSeries.length > 0 ? 90 : 0
+                    antialiasing: true
+                    property bool drawn: false
+
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        var s = root.chartSeries
+                        var w = width
+                        var h = height
+                        ctx.reset()
+                        ctx.clearRect(0, 0, w, h)
+                        if (s.length === 0) return
+
+                        var padL = 26, padR = 6, padB = 14, padT = 8
+                        var plotW = w - padL - padR
+                        var plotH = h - padT - padB
+
+                        var maxV = 1
+                        for (var i = 0; i < s.length; i++) {
+                            if (s[i].down > maxV) maxV = s[i].down
+                            if (s[i].up > maxV) maxV = s[i].up
+                        }
+                        maxV = maxV * 1.1
+
+                        function x(i) { return s.length === 1 ? padL + plotW / 2 : padL + plotW * (i / (s.length - 1)) }
+                        function y(v) { return padT + plotH * (1 - v / maxV) }
+
+                        ctx.fillStyle = Theme.surfaceVariantText
+                        ctx.font = "8px sans-serif"
+                        ctx.textAlign = "left"
+                        ctx.fillText(root.fmtBytes(maxV), 2, padT + 3)
+                        ctx.strokeStyle = Theme.withAlpha(Theme.surfaceText, 0.12)
+                        ctx.lineWidth = 1
+                        ctx.beginPath()
+                        ctx.moveTo(padL, padT + 0.5)
+                        ctx.lineTo(w - padR, padT + 0.5)
+                        ctx.stroke()
+
+                        ctx.beginPath()
+                        ctx.moveTo(padL, padT + plotH + 0.5)
+                        ctx.lineTo(w - padR, padT + plotH + 0.5)
+                        ctx.stroke()
+
+                        ctx.fillStyle = Theme.surfaceVariantText
+                        ctx.font = "8px sans-serif"
+                        ctx.textAlign = "center"
+                        ctx.fillText(root.shortDate(s[0].key), x(0), padT + plotH + 10)
+                        if (s.length > 2) {
+                            ctx.fillText(root.shortDate(s[Math.floor(s.length / 2)].key), x(Math.floor(s.length / 2)), padT + plotH + 10)
+                        }
+                        ctx.fillText(root.shortDate(s[s.length - 1].key), x(s.length - 1), padT + plotH + 10)
+
+                        ctx.strokeStyle = Theme.primary
+                        ctx.lineWidth = 2
+                        ctx.beginPath()
+                        for (var d = 0; d < s.length; d++) {
+                            var px = x(d), py = y(s[d].down)
+                            if (d === 0) ctx.moveTo(px, py)
+                            else ctx.lineTo(px, py)
+                        }
+                        ctx.stroke()
+
+                        ctx.strokeStyle = Theme.error
+                        ctx.beginPath()
+                        for (var u = 0; u < s.length; u++) {
+                            var ux = x(u), uy = y(s[u].up)
+                            if (u === 0) ctx.moveTo(ux, uy)
+                            else ctx.lineTo(ux, uy)
+                        }
+                        ctx.stroke()
+
+                        for (var p = 0; p < s.length; p++) {
+                            ctx.fillStyle = Theme.primary
+                            ctx.beginPath()
+                            ctx.arc(x(p), y(s[p].down), 2, 0, Math.PI * 2)
+                            ctx.fill()
+                            ctx.fillStyle = Theme.error
+                            ctx.beginPath()
+                            ctx.arc(x(p), y(s[p].up), 2, 0, Math.PI * 2)
+                            ctx.fill()
+                        }
+
+                        todayChartCanvas.drawn = true
+                    }
+
+                    Connections {
+                        target: root
+                        function onDailyHistoryChanged() { todayChartCanvas.requestPaint() }
+                        function onTodayUpChanged() { todayChartCanvas.requestPaint() }
+                        function onTodayDownChanged() { todayChartCanvas.requestPaint() }
+                    }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: destCardCmp
+        StyledRect {
+            width: parent ? parent.width : 0
+            implicitHeight: destCol.implicitHeight + Theme.spacingM * 2
+            radius: Theme.cornerRadius
+            color: Theme.surfaceContainerHigh
+
+            Column {
+                id: destCol
+                anchors.fill: parent
+                anchors.margins: Theme.spacingM
+                spacing: Theme.spacingS
+
+                StyledText {
+                    text: root.tr("流量去向", "Destinations")
+                    font.pixelSize: Theme.fontSizeMedium
+                    font.weight: Font.Bold
+                    color: Theme.surfaceText
+                }
+                StyledText {
+                    text: root.tr("目标域名", "Domains")
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceVariantText
+                }
+                Column {
+                    spacing: 2
+                    Repeater {
+                        model: root.destinations
+                        StyledText {
+                            required property string domain
+                            required property int count
+                            text: "• " + domain + "  (" + count + ")"
+                            font.pixelSize: Theme.fontSizeSmall
+                            elide: Text.ElideRight
+                            color: Theme.surfaceText
+                        }
+                    }
+                }
+                StyledText {
+                    text: root.tr("访问进程", "Processes")
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceVariantText
+                }
+                Column {
+                    spacing: 2
+                    Repeater {
+                        model: root.processes
+                        StyledText {
+                            required property string name
+                            required property int count
+                            text: "• " + name + "  (" + count + ")"
+                            font.pixelSize: Theme.fontSizeSmall
+                            elide: Text.ElideRight
+                            color: Theme.surfaceText
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: redirectCardCmp
+        StyledRect {
+            width: parent ? parent.width : 0
+            implicitHeight: redirectCol.implicitHeight + Theme.spacingM * 2
+            radius: Theme.cornerRadius
+            color: Theme.surfaceContainerHigh
+
+            Column {
+                id: redirectCol
+                anchors.fill: parent
+                anchors.margins: Theme.spacingM
+                spacing: Theme.spacingS
+
+                StyledText {
+                    text: root.tr("分流统计", "Redirect")
+                    font.pixelSize: Theme.fontSizeMedium
+                    font.weight: Font.Bold
+                    color: Theme.surfaceText
+                }
+
+                StyledText {
+                    visible: !root.redirectReady
+                    text: root.tr("xray 统计不可用\n请确认 API 端口正确 (默认 2551) 且 xray 已开启 outbound 流量统计",
+                                  "xray stats unavailable\nCheck API port (default 2551) and that xray outbound stats are enabled")
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.warning
+                    wrapMode: Text.WordWrap
+                    width: parent.width
+                }
+
+                Column {
+                    id: redirectTable
+                    visible: root.redirectReady
+                    width: parent.width
+                    spacing: Theme.spacingXXS
+                    property int nameW: width * 0.34
+                    property int numW: width * 0.33
+
+                    Row {
+                        width: parent.width
+                        spacing: Theme.spacingXXS
+                        StyledText {
+                            width: redirectTable.nameW
+                            text: root.tr("代理", "Proxy")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Medium
+                            color: Theme.primary
+                        }
+                        StyledText {
+                            width: redirectTable.numW
+                            horizontalAlignment: Text.AlignRight
+                            text: root.fmtBytes(root.redirectProxyDown)
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceText
+                        }
+                        StyledText {
+                            width: redirectTable.numW
+                            horizontalAlignment: Text.AlignRight
+                            text: root.fmtBytes(root.redirectProxyUp)
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceText
+                        }
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: Theme.spacingXXS
+                        StyledText {
+                            width: redirectTable.nameW
+                            text: root.tr("直连", "Direct")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Medium
+                            color: Theme.error
+                        }
+                        StyledText {
+                            width: redirectTable.numW
+                            horizontalAlignment: Text.AlignRight
+                            text: root.fmtBytes(root.redirectDirectDown)
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceText
+                        }
+                        StyledText {
+                            width: redirectTable.numW
+                            horizontalAlignment: Text.AlignRight
+                            text: root.fmtBytes(root.redirectDirectUp)
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceText
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 
     horizontalBarPill: Component {
         Row {
@@ -322,316 +878,12 @@ PluginComponent {
                         }
                     }
 
-                    // Speed cards - side by side
-                    Row {
-                        width: parent.width
-                        spacing: Theme.spacingS
-
-                        // Download card
-                        StyledRect {
-                            width: (parent.width - Theme.spacingS) / 2
-                            height: 80
-                            radius: Theme.cornerRadius
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
-
-                            Column {
-                                anchors.centerIn: parent
-                                spacing: 4
-
-                                DankIcon {
-                                    name: "arrow_downward"
-                                    size: Theme.iconSize
-                                    color: Theme.primary
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-
-                                StyledText {
-                                    text: root.fmtSpeed(root.rateDown)
-                                    font.pixelSize: Theme.fontSizeLarge
-                                    font.weight: Font.Bold
-                                    color: Theme.primary
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-
-                                StyledText {
-                                    text: root.tr("下载", "Download")
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: Theme.surfaceVariantText
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-                            }
-                        }
-
-                        // Upload card
-                        StyledRect {
-                            width: (parent.width - Theme.spacingS) / 2
-                            height: 80
-                            radius: Theme.cornerRadius
-                            color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.15)
-
-                            Column {
-                                anchors.centerIn: parent
-                                spacing: 4
-
-                                DankIcon {
-                                    name: "arrow_upward"
-                                    size: Theme.iconSize
-                                    color: Theme.error
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-
-                                StyledText {
-                                    text: root.fmtSpeed(root.rateUp)
-                                    font.pixelSize: Theme.fontSizeLarge
-                                    font.weight: Font.Bold
-                                    color: Theme.error
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-
-                                StyledText {
-                                    text: root.tr("上传", "Upload")
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: Theme.surfaceVariantText
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-                            }
-                        }
-                    }
-
-                    // Cumulative traffic
-                    StyledRect {
-                        width: parent.width
-                        implicitHeight: totalRow.implicitHeight + Theme.spacingM * 2
-                        radius: Theme.cornerRadius
-                        color: Theme.surfaceContainerHigh
-
-                        Row {
-                            id: totalRow
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacingM
-                            spacing: Theme.spacingM
-
-                            Column {
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 2
-
-                                StyledText {
-                                    text: root.tr("累计下行", "Total down")
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: Theme.surfaceVariantText
-                                }
-                                StyledText {
-                                    text: root.fmtBytes(root.totalDown)
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    font.weight: Font.Medium
-                                    color: Theme.surfaceText
-                                }
-                            }
-
-                            Item { width: 1; height: 1; anchors.verticalCenter: parent.verticalCenter }
-
-                            Column {
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 2
-
-                                StyledText {
-                                    text: root.tr("累计上行", "Total up")
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: Theme.surfaceVariantText
-                                }
-                                StyledText {
-                                    text: root.fmtBytes(root.totalUp)
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    font.weight: Font.Medium
-                                    color: Theme.surfaceText
-                                }
-                            }
-                        }
-                    }
-
-                    // Traffic destinations (流量去向)
-                    StyledRect {
-                        visible: root.showDestinations
-                        width: parent.width
-                        implicitHeight: destCol.implicitHeight + Theme.spacingM * 2
-                        radius: Theme.cornerRadius
-                        color: Theme.surfaceContainerHigh
-
-                        Column {
-                            id: destCol
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacingM
-                            spacing: Theme.spacingS
-
-                            StyledText {
-                                text: root.tr("流量去向", "Destinations")
-                                font.pixelSize: Theme.fontSizeMedium
-                                font.weight: Font.Bold
-                                color: Theme.surfaceText
-                            }
-
-                            StyledText {
-                                text: root.tr("目标域名", "Domains")
-                                font.pixelSize: Theme.fontSizeSmall
-                                color: Theme.surfaceVariantText
-                            }
-
-                            Column {
-                                spacing: 2
-                                Repeater {
-                                    model: root.destinations
-                                    StyledText {
-                                        required property string domain
-                                        required property int count
-                                        text: "• " + domain + "  (" + count + ")"
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        elide: Text.ElideRight
-                                        color: Theme.surfaceText
-                                    }
-                                }
-                            }
-
-                            StyledText {
-                                text: root.tr("访问进程", "Processes")
-                                font.pixelSize: Theme.fontSizeSmall
-                                color: Theme.surfaceVariantText
-                            }
-
-                            Column {
-                                spacing: 2
-                                Repeater {
-                                    model: root.processes
-                                    StyledText {
-                                        required property string name
-                                        required property int count
-                                        text: "• " + name + "  (" + count + ")"
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        elide: Text.ElideRight
-                                        color: Theme.surfaceText
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Redirect breakdown (代理 vs 直连 分流) - xray optional
-                    StyledRect {
-                        visible: root.showRedirect
-                        width: parent.width
-                        implicitHeight: redirectCol.implicitHeight + Theme.spacingM * 2
-                        radius: Theme.cornerRadius
-                        color: Theme.surfaceContainerHigh
-
-                        Column {
-                            id: redirectCol
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacingM
-                            spacing: Theme.spacingS
-
-                            StyledText {
-                                text: root.tr("分流统计", "Redirect")
-                                font.pixelSize: Theme.fontSizeMedium
-                                font.weight: Font.Bold
-                                color: Theme.surfaceText
-                            }
-
-                            // not ready hint
-                            StyledText {
-                                visible: !root.redirectReady
-                                text: root.tr("xray 统计不可用\n请确认 API 端口正确 (默认 2551) 且 xray 已开启 outbound 流量统计",
-                                              "xray stats unavailable\nCheck API port (default 2551) and that xray outbound stats are enabled")
-                                font.pixelSize: Theme.fontSizeSmall
-                                color: Theme.warning
-                                wrapMode: Text.WordWrap
-                                width: parent.width
-                            }
-
-                            Column {
-                                visible: root.redirectReady
-                                width: parent.width
-                                spacing: Theme.spacingS
-
-                                // header row
-                                Row {
-                                    width: parent.width
-                                    spacing: Theme.spacingS
-                                    StyledText {
-                                        width: parent.width * 0.4
-                                        text: root.tr("出口", "Out")
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        font.weight: Font.Medium
-                                        color: Theme.surfaceVariantText
-                                    }
-                                    StyledText {
-                                        width: parent.width * 0.3
-                                        horizontalAlignment: Text.AlignRight
-                                        text: root.tr("下行", "↓")
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceVariantText
-                                    }
-                                    StyledText {
-                                        width: parent.width * 0.3
-                                        horizontalAlignment: Text.AlignRight
-                                        text: root.tr("上行", "↑")
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceVariantText
-                                    }
-                                }
-
-                                // proxy row
-                                Row {
-                                    width: parent.width
-                                    spacing: Theme.spacingS
-                                    StyledText {
-                                        width: parent.width * 0.4
-                                        text: root.tr("代理", "Proxy")
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        font.weight: Font.Medium
-                                        color: Theme.primary
-                                    }
-                                    StyledText {
-                                        width: parent.width * 0.3
-                                        horizontalAlignment: Text.AlignRight
-                                        text: root.fmtBytes(root.redirectProxyDown)
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceText
-                                    }
-                                    StyledText {
-                                        width: parent.width * 0.3
-                                        horizontalAlignment: Text.AlignRight
-                                        text: root.fmtBytes(root.redirectProxyUp)
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceText
-                                    }
-                                }
-
-                                // direct row
-                                Row {
-                                    width: parent.width
-                                    spacing: Theme.spacingS
-                                    StyledText {
-                                        width: parent.width * 0.4
-                                        text: root.tr("直连", "Direct")
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        font.weight: Font.Medium
-                                        color: Theme.error
-                                    }
-                                    StyledText {
-                                        width: parent.width * 0.3
-                                        horizontalAlignment: Text.AlignRight
-                                        text: root.fmtBytes(root.redirectDirectDown)
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceText
-                                    }
-                                    StyledText {
-                                        width: parent.width * 0.3
-                                        horizontalAlignment: Text.AlignRight
-                                        text: root.fmtBytes(root.redirectDirectUp)
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceText
-                                    }
-                                }
-                            }
+                    // Cards in user-defined order & visibility
+                    Repeater {
+                        model: root.cardModel
+                        delegate: Loader {
+                            width: contentCol.width
+                            sourceComponent: root.cardComponent(modelData)
                         }
                     }
                 }
@@ -640,8 +892,19 @@ PluginComponent {
     }
 
     popoutWidth: 360
-    popoutHeight: (root.showDestinations && root.showRedirect) ? 720
-                 : root.showDestinations ? 560
-                 : root.showRedirect ? 420
-                 : 280
+    popoutHeight: root.popoutContentH
+
+    readonly property real popoutContentH: {
+        var h = 0
+        for (var i = 0; i < root.cardModel.length; i++) {
+            var id = root.cardModel[i]
+            if (id === "speed") h += 80 + Theme.spacingM
+            else if (id === "cumulative") h += 78 + Theme.spacingM
+            else if (id === "today") h += 170 + Theme.spacingM
+            else if (id === "destinations") h += 260 + Theme.spacingM
+            else if (id === "redirect") h += 140 + Theme.spacingM
+        }
+        if (!root.sampleOk) h += 150 + Theme.spacingM
+        return Math.max(200, h + 90)
+    }
 }

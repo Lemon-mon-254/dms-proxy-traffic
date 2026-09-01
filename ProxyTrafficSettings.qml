@@ -11,6 +11,15 @@ PluginSettings {
     readonly property bool isZh: root.currentLang !== "en"
     function tr(zh, en) { return root.isZh ? zh : en }
 
+    function orderLabel(id) {
+        if (id === "speed") return root.tr("速度", "Speed")
+        if (id === "cumulative") return root.tr("累计流量", "Cumulative")
+        if (id === "today") return root.tr("历史流量", "History")
+        if (id === "destinations") return root.tr("流量去向", "Destinations")
+        if (id === "redirect") return root.tr("分流统计", "Redirect")
+        return id
+    }
+
     onPluginServiceChanged: {
         if (pluginService) {
             root.currentLang = String(root.loadValue("language", "zh"));
@@ -109,6 +118,177 @@ PluginSettings {
         label: root.tr("分流统计", "Redirect")
         description: root.tr("弹出面板显示 xray 出站的代理/直连流量\n(仅 xray/v2rayN)", "Show proxy vs direct traffic breakdown\n(xray/v2rayN only)")
         defaultValue: false
+    }
+
+    ToggleSetting {
+        settingKey: "showSpeed"
+        label: root.tr("速度卡片", "Speed card")
+        description: root.tr("弹出面板显示实时下载/上传速率卡片", "Show real-time download/upload rate cards")
+        defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "showCumulCard"
+        label: root.tr("累计流量卡片", "Cumulative card")
+        description: root.tr("弹出面板显示累计上下行流量", "Show cumulative up/down traffic")
+        defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "showToday"
+        label: root.tr("历史流量卡片", "History card")
+        description: root.tr("弹出面板显示最近 N 天上下行流量及折线图", "Show recent up/down traffic and its line chart")
+        defaultValue: true
+    }
+
+    SelectionSetting {
+        settingKey: "chartDays"
+        label: root.tr("折线图天数", "Chart days")
+        description: root.tr("折线图显示最近多少天的历史", "How many days of history the chart shows")
+        options: [
+            { label: "3", value: "3" },
+            { label: "7", value: "7" },
+            { label: "14", value: "14" },
+            { label: "30", value: "30" },
+            { label: "90", value: "90" }
+        ]
+        defaultValue: "7"
+    }
+
+    // ── Card order (自定义顺序) ──
+    StyledText {
+        width: parent.width
+        text: root.tr("顺序", "Order")
+        font.pixelSize: Theme.fontSizeLarge
+        font.weight: Font.Bold
+        color: Theme.surfaceText
+    }
+
+    property var order: ["speed", "cumulative", "today", "destinations", "redirect"]
+
+    function loadOrder() {
+        var stored = root.loadValue("cardOrder", null)
+        if (Array.isArray(stored) && stored.length > 0) {
+            var valid = []
+            for (var i = 0; i < stored.length; i++) {
+                if (root.orderLabel(stored[i]) !== stored[i]) valid.push(stored[i])
+            }
+            if (valid.length > 0) root.order = valid
+        }
+    }
+
+    function moveCardUp(index) {
+        if (index <= 0) return
+        var arr = root.order.slice()
+        var t = arr[index - 1]
+        arr[index - 1] = arr[index]
+        arr[index] = t
+        root.order = arr
+        root.saveValue("cardOrder", arr)
+    }
+
+    function moveCardDown(index) {
+        if (index >= root.order.length - 1) return
+        var arr = root.order.slice()
+        var t = arr[index + 1]
+        arr[index + 1] = arr[index]
+        arr[index] = t
+        root.order = arr
+        root.saveValue("cardOrder", arr)
+    }
+
+    Component.onCompleted: root.loadOrder()
+
+    StyledRect {
+        width: parent.width
+        height: 210
+        radius: Theme.cornerRadius
+        color: Theme.withAlpha(Theme.surfaceContainerLow, Theme.popupTransparency)
+        border.color: Theme.surfaceContainerHighest
+        border.width: 1
+        clip: true
+
+        Column {
+            anchors.fill: parent
+            anchors.topMargin: Theme.spacingXS
+            anchors.bottomMargin: Theme.spacingXS
+            spacing: Theme.spacingXS
+
+            Repeater {
+                model: root.order
+
+                StyledRect {
+                    required property string modelData
+                    required property int index
+
+                    width: parent ? parent.width : 0
+                    height: 36
+                    radius: Theme.cornerRadius
+                    color: Theme.surfaceContainerHigh
+                    border.color: Theme.withAlpha(Theme.surfaceText, 0.08)
+                    border.width: 1
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.spacingM
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.orderLabel(modelData)
+                        font.pixelSize: Theme.fontSizeMedium
+                        color: Theme.surfaceText
+                        elide: Text.ElideRight
+                    }
+
+                    Row {
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.spacingS
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.spacingXS
+
+                        MouseArea {
+                            width: 28; height: 24
+                            id: upBtn
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            enabled: index > 0
+                            opacity: enabled ? 1 : 0.3
+                            onClicked: root.moveCardUp(index)
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 6
+                                color: upBtn.containsMouse ? Theme.surfaceContainerHighest : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u25B2"
+                                    font.pixelSize: 10
+                                    color: Theme.surfaceText
+                                }
+                            }
+                        }
+
+                        MouseArea {
+                            width: 28; height: 24
+                            id: downBtn
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            enabled: index < root.order.length - 1
+                            opacity: enabled ? 1 : 0.3
+                            onClicked: root.moveCardDown(index)
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 6
+                                color: downBtn.containsMouse ? Theme.surfaceContainerHighest : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u25BC"
+                                    font.pixelSize: 10
+                                    color: Theme.surfaceText
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     StringSetting {

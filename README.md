@@ -7,11 +7,14 @@ A [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) bar widg
 ## Features
 
 - **Bar pill** — live proxy download/upload speed (`↓1.2 MB/s ↑45 KB/s`)
-- **Popout panel** — click the pill for detailed rates and cumulative traffic (down/up)
+- **Popout panel** — click the pill for a set of cards: live rates, cumulative traffic, history, destinations, redirect
+- **Modular popout cards** — each card (speed / cumulative / history / destinations / redirect) can be shown or hidden independently and **reordered** in settings
+- **History card** — today's down/up traffic persisted across restarts, with a **line chart** of the last N days (3/7/14/30/90)
 - **Proxy-only** — only counts traffic flowing through the local proxy port
 - **Redirect breakdown (xray)** — optional per-outbound proxy vs direct byte totals read from xray's StatsService (`/debug/vars`)
 - **Configurable display**: toggle download rate / upload rate / cumulative traffic / port on the bar
 - Adjustable refresh interval (1–5 s)
+- Bilingual UI (zh/en)
 - Works with horizontal and vertical bars
 
 ## Installation
@@ -66,6 +69,11 @@ Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 | Show port | off | Appends `:port` |
 | Destinations | off | Popout shows target domains & processes (proxy access log required) |
 | Redirect (xray) | off | Popout shows proxy vs direct byte totals per xray outbound |
+| **Speed card** | on | Popout card with live down/up speeds |
+| **Cumulative card** | on | Popout card with cumulative down/up traffic |
+| **History card** | on | Popout card with today's traffic and its line chart |
+| Chart days | `7` | How many days of history the line chart shows (3/7/14/30/90) |
+| **Order** | — | Reorder the popout cards (up/down buttons per card) |
 | xray API port | `2551` | xray API inbound port, used for the redirect view |
 
 > **Important:** the *Proxy port* in settings should match the port used when running `setup-nftables.sh install`, otherwise counters will not match.
