@@ -121,6 +121,20 @@ PluginSettings {
     }
 
     ToggleSetting {
+        settingKey: "useXrayCumul"
+        label: root.tr("累计流量改用 xray", "Use xray for cumulative")
+        description: root.tr("累计流量/胶囊改用 xray 分流统计来源 (proxy+direct)\n(仅 xray/v2rayN 适用; 更准确, 且跨重启不丢失)", "Cumulative & pill use xray outbound stats (proxy+direct)\n(xray/v2rayN only; more accurate, survives restarts)")
+        defaultValue: false
+    }
+
+    ToggleSetting {
+        settingKey: "barCumulOnly"
+        label: root.tr("栏上累计仅显示代理流量", "Bar cumulative proxy-only")
+        description: root.tr("栏上胶囊的累计流量只显示代理(proxy)出站, 不含直连\n(需配合\"累计流量改用 xray\"开启)", "Bar pill cumulative shows only proxy outbound, excluding direct\n(requires \"Use xray for cumulative\" enabled)")
+        defaultValue: false
+    }
+
+    ToggleSetting {
         settingKey: "showSpeed"
         label: root.tr("速度卡片", "Speed card")
         description: root.tr("弹出面板显示实时下载/上传速率卡片", "Show real-time download/upload rate cards")

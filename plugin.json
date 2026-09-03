@@ -2,7 +2,7 @@
     "id": "proxyTraffic",
     "name": "Proxy Traffic",
     "description": "Realtime proxy throughput, cumulative traffic, and xray proxy/direct redirect breakdown (nftables)",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "author": "lemonmon",
     "icon": "swap_vert",
     "type": "widget",

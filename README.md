@@ -9,9 +9,11 @@ A [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) bar widg
 - **Bar pill** — live proxy download/upload speed (`↓1.2 MB/s ↑45 KB/s`)
 - **Popout panel** — click the pill for a set of cards: live rates, cumulative traffic, history, destinations, redirect
 - **Modular popout cards** — each card (speed / cumulative / history / destinations / redirect) can be shown or hidden independently and **reordered** in settings
-- **History card** — today's down/up traffic persisted across restarts, with a **line chart** of the last N days (3/7/14/30/90)
+- **History card** — today's traffic persisted across restarts, with a **per-day line chart** (proxy line 🔵, direct line 🟢) of the last N days (3/7/14/30/90), and a **hover tooltip** on each day showing that day's proxy/direct up & down
+- **Today card** — live proxy (`Proxy`) and direct (`Direct`) cumulative totals for today (up+down combined), colored blue/green
+- **Persistence** — both cumulative totals and the per-day history survive restarts (persisted to the plugin state), even though nftables counters reset to zero on boot
 - **Proxy-only** — only counts traffic flowing through the local proxy port
-- **Redirect breakdown (xray)** — optional per-outbound proxy vs direct byte totals read from xray's StatsService (`/debug/vars`)
+- **Redirect breakdown (xray)** — optional per-outbound proxy vs direct byte totals (and the cumulative/history chart) read from xray's StatsService (`/debug/vars`)
 - **Configurable display**: toggle download rate / upload rate / cumulative traffic / port on the bar
 - Adjustable refresh interval (1–5 s)
 - Bilingual UI (zh/en)
@@ -69,6 +71,8 @@ Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 | Show port | off | Appends `:port` |
 | Destinations | off | Popout shows target domains & processes (proxy access log required) |
 | Redirect (xray) | off | Popout shows proxy vs direct byte totals per xray outbound |
+| **Use xray for cumulative** | off | Cumulative total uses xray (`/debug/vars`) instead of nftables, so it keeps counting across reboots. Only applies on xray/v2rayN |
+| **Bar cumulative = proxy only** | off | When the bar shows cumulative traffic, show only the proxy amount. Needs *Use xray for cumulative* |
 | **Speed card** | on | Popout card with live down/up speeds |
 | **Cumulative card** | on | Popout card with cumulative down/up traffic |
 | **History card** | on | Popout card with today's traffic and its line chart |
@@ -89,6 +93,7 @@ http://127.0.0.1:<xray-api-port>/debug/vars   # -> .stats.outbound.{proxy,direct
 - Requires xray/v2rayN to have outbound traffic stats enabled (`policy.system.statsOutboundUplink/Downlink`, enabled by default in v2rayN) and an API inbound (default `2551`).
 - No nftables rules needed for this view; it supplements (not replaces) the nftables counter.
 - If the port is unreachable, the popout shows a *"xray stats unavailable"* hint instead of failing.
+- Besides the redirect card, xray also powers the **Today card** and the **history line chart** (proxy vs direct per day). These two always use xray for the proxy/direct split, so for a meaningful chart point the proxy API must be reachable.
 
 ## Managing rules
 
