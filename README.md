@@ -35,7 +35,7 @@ dms restart
 
 ## Quick start
 
-Run the one-command installer. It installs `nft` if missing, creates the nftables counters for your proxy port, makes them **persistent** across reboots, and grants passwordless read access:
+Run the one-command installer. It installs `nft` if missing, creates the nftables counters for your proxy port, makes them **persistent** across reboots, and grants passwordless **read-only** access (limited to the two `nft list chain` queries the widget uses):
 
 ```bash
 cd ~/.config/DankMaterialShell/plugins/ProxyTraffic
@@ -55,7 +55,7 @@ Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 - creates the rule file `/etc/nftables.d/proxy-traffic.nft` for your port
 - applies the counters immediately
 - enables a systemd service (`nft-proxy-traffic.service`) so counters reload on boot
-- writes `/etc/sudoers.d/proxy-nft` so the widget reads counters without prompting
+- writes `/etc/sudoers.d/proxy-nft` granting passwordless **read-only** access to just the two `nft list chain` commands the widget runs
 
 > **Note:** re-running `install` (or `create`) resets the counters to zero. Set the plugin's *Proxy port* to the same value you used here.
 

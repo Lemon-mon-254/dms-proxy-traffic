@@ -2,8 +2,8 @@
 # proxy-traffic-split: 读取 nftables 计数器并输出代理流量 JSON
 # 用于 DMS ProxyTraffic 插件
 #
-# 需要 sudo 无密码权限读取 nftables:
-#   echo "$USER ALL=(root) NOPASSWD: /usr/bin/nft" | sudo tee /etc/sudoers.d/proxy-nft
+# 需要 sudo 无密码权限读取 nftables (由 setup-nftables.sh 写入, 仅限两条只读查询命令):
+#   echo "$USER ALL=(root) NOPASSWD: /usr/bin/nft list chain inet proxy_stat input, /usr/bin/nft list chain inet proxy_stat output" | sudo tee /etc/sudoers.d/proxy-nft
 #
 # 规则方向(见 setup-nftables.sh):
 #   input 链  tcp/udp dport $PORT  => 上传 (proxy-up)

@@ -7,7 +7,7 @@
 #   sudo ./setup-nftables.sh uninstall   # 移除: 规则 + 持久化服务 + 选项是否还原 sudoers
 #   sudo ./setup-nftables.sh delete      # 仅删除当前统计规则
 #   sudo ./setup-nftables.sh show        # 显示当前规则与状态
-#   sudo ./setup-nftables.sh sudoers     # 仅授权无密码读取 nftables(可单独执行)
+#   sudo ./setup-nftables.sh sudoers     # 仅授权两条只读 nft 查询命令(可单独执行)
 #
 # 代理端口通过环境变量 PROXY_PORT 指定, 默认 7890 (常见: Clash 7890 · v2ray 10808 · sing-box 1080):
 #   PROXY_PORT=2547 sudo ./setup-nftables.sh install
@@ -21,10 +21,35 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
 
 setup_sudoers() {
     local user="${SUDO_USER:-$(whoami)}"
-    echo "为 $user 配置无密码读取 nftables 权限..."
-    echo "$user ALL=(root) NOPASSWD: /usr/bin/nft" > /etc/sudoers.d/proxy-nft
-    chmod 440 /etc/sudoers.d/proxy-nft
-    echo "已写入 /etc/sudoers.d/proxy-nft"
+    echo "为 $user 配置受限的 nftables 只读查询权限..."
+
+    # 仅授权组件实际执行的两条只读命令, 而不是整个 /usr/bin/nft。
+    # 授权整个 nft 会让该用户以 root 身份 flush/改写防火墙, 或用 `nft -f`
+    # 加载任意文件; 这里限制为对统计表的只读查询。
+    #
+    # sudo 的参数匹配 (见 sudoers(5)): 未使用通配符时, 用户实际输入的参数
+    # 必须与这里列出的参数完全一致, 不接受任何额外参数。切勿在此加入
+    # flush/delete/restore/-f 等命令, 也不要使用通配符 `*` (会放宽匹配)。
+    local sudoers_tmp
+    sudoers_tmp="$(mktemp)"
+    cat > "$sudoers_tmp" << EOF
+$user ALL=(root) NOPASSWD: /usr/bin/nft list chain inet proxy_stat input, /usr/bin/nft list chain inet proxy_stat output
+EOF
+
+    # 写盘前用 visudo 校验语法, 避免产生损坏的 sudoers 文件导致 sudo 全面失效。
+    if command -v visudo >/dev/null 2>&1; then
+        if ! visudo -cf "$sudoers_tmp"; then
+            echo "sudoers 语法校验失败, 未修改系统配置" >&2
+            rm -f "$sudoers_tmp"
+            return 1
+        fi
+    else
+        echo "警告: 未找到 visudo, 跳过 sudoers 语法校验" >&2
+    fi
+
+    install -m 0440 -o root -g root "$sudoers_tmp" /etc/sudoers.d/proxy-nft
+    rm -f "$sudoers_tmp"
+    echo "已写入 /etc/sudoers.d/proxy-nft (仅两条只读 nft 查询命令)"
 }
 
 remove_sudoers() {

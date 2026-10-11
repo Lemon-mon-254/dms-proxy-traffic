@@ -35,7 +35,7 @@ dms restart
 
 ## 快速开始
 
-运行一键安装命令。它会：检测/安装 `nft`（如缺失）、为你代理端口创建 nftables 计数器、将其**开机持久化**、并授予无密码读取权限：
+运行一键安装命令。它会：检测/安装 `nft`（如缺失）、为你代理端口创建 nftables 计数器、将其**开机持久化**、并授予无密码**只读**权限（仅限组件使用的两条 `nft list chain` 查询）：
 
 ```bash
 cd ~/.config/DankMaterialShell/plugins/ProxyTraffic
@@ -55,7 +55,7 @@ PROXY_PORT=2547 sudo ./setup-nftables.sh install
 - 为你的端口生成规则文件 `/etc/nftables.d/proxy-traffic.nft`
 - 立即应用计数器
 - 启用 systemd 服务（`nft-proxy-traffic.service`），开机自动加载
-- 写入 `/etc/sudoers.d/proxy-nft`，让组件无密码读取计数器
+- 写入 `/etc/sudoers.d/proxy-nft`，仅授予两条 `nft list chain` 只读命令的无密码权限
 
 > **注意：** 重新运行 `install`（或 `create`）会把计数器清零。请把插件中的"代理端口"设置为与本次相同。
 

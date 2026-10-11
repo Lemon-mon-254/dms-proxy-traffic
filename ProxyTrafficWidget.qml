@@ -336,7 +336,7 @@ PluginComponent {
 
     Process {
         id: sampler
-        command: ["sh", "-c", "exec '" + root.scriptPath + "'"]
+        command: ["bash", root.scriptPath]
         stdout: StdioCollector {
             id: outCollector
             onStreamFinished: root.applySample(outCollector.text)
@@ -345,11 +345,12 @@ PluginComponent {
 
     Process {
         id: destSampler
-        command: [
-            "sh", "-c",
-            "XRAY_ACCESS='" + root.xrayAccessLog + "' " +
-            "PROXY_PORT='" + root.proxyPort + "' exec '" + root.destScriptPath + "'"
-        ]
+        command: ["bash", root.destScriptPath]
+        // 通过环境变量传参, 不再拼接进 shell 命令行 (避免命令注入)
+        environment: ({
+            XRAY_ACCESS: root.xrayAccessLog,
+            PROXY_PORT: root.proxyPort
+        })
         stdout: StdioCollector {
             id: destCollector
             onStreamFinished: root.applyDest(destCollector.text)
@@ -358,10 +359,11 @@ PluginComponent {
 
     Process {
         id: redirectSampler
-        command: [
-            "sh", "-c",
-            "XRAY_API_PORT='" + root.xrayApiPort + "' exec '" + root.redirectScriptPath + "'"
-        ]
+        command: ["bash", root.redirectScriptPath]
+        // 通过环境变量传参, 不再拼接进 shell 命令行 (避免命令注入)
+        environment: ({
+            XRAY_API_PORT: root.xrayApiPort
+        })
         stdout: StdioCollector {
             id: redirectCollector
             onStreamFinished: root.applyRedirect(redirectCollector.text)
