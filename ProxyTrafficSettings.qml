@@ -109,7 +109,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "showDestinations"
         label: root.tr("流量去向", "Destinations")
-        description: root.tr("弹出面板显示目标域名与访问进程\n(需代理开启 access 日志)", "Show target domains & processes in popout\n(proxy access log required)")
+        description: root.tr("弹出面板显示目标域名、访问应用及今日用量\n(域名需代理开启 access 日志；应用用量为 TCP 近似值)", "Show target domains, apps & today's usage in popout\n(domains need proxy access log; app usage is approximate TCP data)")
         defaultValue: false
     }
 
@@ -167,6 +167,14 @@ PluginSettings {
             { label: "90", value: "90" }
         ]
         defaultValue: "7"
+    }
+
+    StringSetting {
+        settingKey: "subscriptionUrl"
+        label: root.tr("订阅链接", "Subscription URL")
+        description: root.tr("可选；在今日流量卡片显示订阅流量。优先读取 subscription-userinfo 响应头；若服务商只在节点名称中提供剩余流量，则显示剩余流量和到期时间；留空关闭\n链接含 token，请勿分享", "Optional; show subscription quota in the Today card. Uses the subscription-userinfo header when available; if the provider only includes remaining traffic in node names, shows remaining traffic and expiry; leave empty to disable\nThe URL contains a token, so keep it private")
+        placeholder: "https://example.com/sub?token=..."
+        defaultValue: ""
     }
 
     // ── Card order (自定义顺序) ──
@@ -242,7 +250,7 @@ PluginSettings {
                     border.color: Theme.withAlpha(Theme.surfaceText, 0.08)
                     border.width: 1
 
-                    Text {
+                    StyledText {
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.spacingM
                         anchors.verticalCenter: parent.verticalCenter
@@ -258,46 +266,24 @@ PluginSettings {
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Theme.spacingXS
 
-                        MouseArea {
-                            width: 28; height: 24
-                            id: upBtn
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
+                        DankActionButton {
+                            buttonSize: 28
+                            iconSize: 16
+                            iconName: "keyboard_arrow_up"
+                            iconColor: Theme.surfaceText
                             enabled: index > 0
                             opacity: enabled ? 1 : 0.3
                             onClicked: root.moveCardUp(index)
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 6
-                                color: upBtn.containsMouse ? Theme.surfaceContainerHighest : "transparent"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "\u25B2"
-                                    font.pixelSize: 10
-                                    color: Theme.surfaceText
-                                }
-                            }
                         }
 
-                        MouseArea {
-                            width: 28; height: 24
-                            id: downBtn
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
+                        DankActionButton {
+                            buttonSize: 28
+                            iconSize: 16
+                            iconName: "keyboard_arrow_down"
+                            iconColor: Theme.surfaceText
                             enabled: index < root.order.length - 1
                             opacity: enabled ? 1 : 0.3
                             onClicked: root.moveCardDown(index)
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 6
-                                color: downBtn.containsMouse ? Theme.surfaceContainerHighest : "transparent"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "\u25BC"
-                                    font.pixelSize: 10
-                                    color: Theme.surfaceText
-                                }
-                            }
                         }
                     }
                 }
@@ -316,8 +302,8 @@ PluginSettings {
     StringSetting {
         settingKey: "xrayAccessLog"
         label: root.tr("代理访问日志路径", "Proxy access log path")
-        description: root.tr("xray 的 access 日志文件,用于解析目标域名", "xray access log file, used to resolve target domains")
-        placeholder: "/home/lemonmon/.local/share/v2rayN/binConfigs/access.log"
-        defaultValue: "/home/lemonmon/.local/share/v2rayN/binConfigs/access.log"
+        description: root.tr("xray 的 access 日志文件，用于解析目标域名；留空则关闭", "xray access log file used to resolve target domains; leave empty to disable")
+        placeholder: "~/.local/share/v2rayN/binConfigs/access.log"
+        defaultValue: ""
     }
 }

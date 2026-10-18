@@ -8,14 +8,13 @@
 #
 # 环境变量:
 #   XRAY_API_PORT   xray API 端口 (默认 2551)
-#   XRAY_BIN        xray 二进制路径 (默认 "xray", 从 PATH 找)
 #
 # 输出格式: {"proxy":{"down":0,"up":0},"direct":{"down":0,"up":0},"ready":true}
 #   ready=false 表示端口不可达或非 xray (插件显示"不可用")
 
 XRAY_API_PORT="${XRAY_API_PORT:-2551}"
 
-# 优先用 xray 自带命令获取, 否则 curl
+# 从 xray API 读取; 端口不可达时返回 ready=false
 fetch_stats() {
     local out
     out=$(curl -s --max-time 2 "http://127.0.0.1:${XRAY_API_PORT}/debug/vars" 2>/dev/null)
@@ -27,31 +26,31 @@ fetch_stats() {
 }
 
 output() {
-    local stats="$1"
-    # stats 若不含 .stats.outbound 视为不可用 (端口不可达/非 xray)
-    if ! printf '%s' "$stats" | jq -e '.stats.outbound' >/dev/null 2>&1; then
+    local stats="$1" result
+    # One jq invocation handles both the availability check and the four
+    # fields. stats without .stats.outbound means port unreachable / not xray.
+    result=$(printf '%s' "$stats" | jq -c '
+        if .stats.outbound then
+            {
+                proxy: {
+                    down: (.stats.outbound.proxy.downlink // 0),
+                    up: (.stats.outbound.proxy.uplink // 0)
+                },
+                direct: {
+                    down: (.stats.outbound.direct.downlink // 0),
+                    up: (.stats.outbound.direct.uplink // 0)
+                },
+                ready: true
+            }
+        else
+            {proxy: null, direct: null, ready: false}
+        end
+    ' 2>/dev/null) || {
         echo '{"proxy":null,"direct":null,"ready":false}'
         return 1
-    fi
+    }
 
-    local p_down p_up d_down d_up
-    p_down=$(printf '%s' "$stats" | jq '.stats.outbound.proxy.downlink // 0' 2>/dev/null)
-    p_up=$(printf '%s' "$stats" | jq '.stats.outbound.proxy.uplink // 0' 2>/dev/null)
-    d_down=$(printf '%s' "$stats" | jq '.stats.outbound.direct.downlink // 0' 2>/dev/null)
-    d_up=$(printf '%s' "$stats" | jq '.stats.outbound.direct.uplink // 0' 2>/dev/null)
-
-    if [ -z "$p_down" ] || [ -z "$p_up" ] || [ -z "$d_down" ] || [ -z "$d_up" ]; then
-        echo '{"proxy":null,"direct":null,"ready":false}'
-        return 1
-    fi
-
-    p_down=$((p_down))
-    p_up=$((p_up))
-    d_down=$((d_down))
-    d_up=$((d_up))
-
-    printf '{"proxy":{"down":%d,"up":%d},"direct":{"down":%d,"up":%d},"ready":true}' \
-        "$p_down" "$p_up" "$d_down" "$d_up"
+    printf '%s\n' "$result"
 }
 
 stats=$(fetch_stats)

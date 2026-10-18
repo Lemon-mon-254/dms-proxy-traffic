@@ -20,6 +20,10 @@ PluginComponent {
         var url = Qt.resolvedUrl("proxy-redirect-stats").toString()
         return url.indexOf("file://") === 0 ? url.substring(7) : url
     }
+    readonly property string subscriptionScriptPath: {
+        var url = Qt.resolvedUrl("proxy-subscription").toString()
+        return url.indexOf("file://") === 0 ? url.substring(7) : url
+    }
     property int refreshSec: (pluginData.refreshInterval !== undefined && pluginData.refreshInterval !== "") ? parseInt(pluginData.refreshInterval) : 2
     property bool showDownRate: pluginData.showDownRate !== false
     property bool showUpRate: pluginData.showUpRate !== false
@@ -31,9 +35,10 @@ PluginComponent {
     property bool showCumulCard: pluginData.showCumulCard !== false
     property bool showToday: pluginData.showToday !== false
     property int chartDays: (pluginData.chartDays !== undefined && pluginData.chartDays !== "") ? parseInt(pluginData.chartDays) : 7
-    // 折线图颜色: 代理=蓝, 直连=绿
-    readonly property color chartProxyColor: "#4C9AFF"
-    readonly property color chartDirectColor: "#4CAF50"
+    // 折线图颜色跟随主题
+    readonly property color chartProxyColor: Theme.primary
+    readonly property color chartDirectColor: Theme.success
+    readonly property string chartFont: Math.max(8, Math.round(Theme.fontSizeSmall * 0.7)) + "px " + Theme.fontFamily
     property int chartHoverIndex: -1
     readonly property var cardOrder: {
         var order = pluginData.cardOrder
@@ -42,6 +47,15 @@ PluginComponent {
     }
     property string xrayAccessLog: (pluginData.xrayAccessLog !== undefined && pluginData.xrayAccessLog !== "") ? pluginData.xrayAccessLog : ""
     property string xrayApiPort: (pluginData.xrayApiPort !== undefined && pluginData.xrayApiPort !== "") ? pluginData.xrayApiPort : "2551"
+    property string subscriptionUrl: (pluginData.subscriptionUrl !== undefined && pluginData.subscriptionUrl !== null) ? String(pluginData.subscriptionUrl).trim() : ""
+    property bool subscriptionAttempted: false
+    property bool subscriptionReady: false
+    property string subscriptionSource: ""
+    property real subscriptionUsed: 0
+    property real subscriptionTotal: 0
+    property bool subscriptionHasRemaining: false
+    property real subscriptionRemaining: 0
+    property string subscriptionExpireText: ""
     property bool isZh: pluginData.language !== "en"
 
     property real rateUp: 0
@@ -67,6 +81,9 @@ PluginComponent {
     property bool useXrayCumul: pluginData.useXrayCumul === true
     // 栏上(胶囊)累计仅显示代理流量(不含直连) — 仅当 xray 数据可用时生效
     property bool barCumulOnly: pluginData.barCumulOnly === true
+    // xray /debug/vars is only needed by these optional views. Keep the
+    // sampler off entirely when all of them are disabled.
+    readonly property bool xrayStatsNeeded: root.showRedirect || root.showToday || root.useXrayCumul
     readonly property bool xrayCumulActive: root.useXrayCumul && root.redirectReady
     readonly property real effTotalDown: root.xrayCumulActive
         ? (root.redirectProxyDown + root.redirectDirectDown) : root.totalDown
@@ -214,6 +231,7 @@ PluginComponent {
     }
 
     function fmtBytes(b) {
+        if (b >= 1099511627776) return (b / 1099511627776).toFixed(2) + " TB"
         if (b >= 1073741824) return (b / 1073741824).toFixed(2) + " GB"
         if (b >= 1048576) return (b / 1048576).toFixed(1) + " MB"
         if (b >= 1024) return (b / 1024).toFixed(1) + " KB"
@@ -299,6 +317,49 @@ PluginComponent {
         root.processes = Array.isArray(s.processes) ? s.processes : []
     }
 
+    function applySubscription(text) {
+        root.subscriptionAttempted = true
+        let s = null
+        try { s = JSON.parse(text.trim()) } catch (e) {
+            root.subscriptionReady = false
+            return
+        }
+        if (!s || s.ready !== true) {
+            root.subscriptionReady = false
+            return
+        }
+        root.subscriptionSource = (s.source === "nodes") ? "nodes" : "header"
+        root.subscriptionUsed = Math.max(0, Number(s.used) || 0)
+        if (root.subscriptionUsed <= 0 && (s.upload !== undefined || s.download !== undefined))
+            root.subscriptionUsed = Math.max(0, (Number(s.upload) || 0) + (Number(s.download) || 0))
+        root.subscriptionTotal = Math.max(0, Number(s.total) || 0)
+        root.subscriptionHasRemaining = s.hasRemaining === true && s.remaining !== undefined
+        root.subscriptionRemaining = Math.max(0, Number(s.remaining) || 0)
+        root.subscriptionExpireText = typeof s.expireText === "string" ? s.expireText : ""
+        root.subscriptionReady = true
+    }
+
+    function subscriptionText() {
+        if (!root.subscriptionReady)
+            return root.subscriptionAttempted
+                ? root.tr("订阅读取失败", "Subscription unavailable")
+                : root.tr("订阅读取中…", "Loading subscription…")
+
+        if (root.subscriptionSource === "nodes") {
+            var text = root.subscriptionHasRemaining
+                ? root.tr("订阅剩余 ", "Subscription remaining ") + root.fmtBytes(root.subscriptionRemaining)
+                : ""
+            if (root.subscriptionExpireText !== "")
+                text += (text !== "" ? " · " : "") + root.subscriptionExpireText
+            return text !== "" ? text : root.tr("订阅信息已读取", "Subscription loaded")
+        }
+
+        var total = root.subscriptionTotal > 0
+            ? root.fmtBytes(root.subscriptionTotal)
+            : root.tr("不限量", "unlimited")
+        return root.tr("已用 ", "Used ") + root.fmtBytes(root.subscriptionUsed) + " / " + total
+    }
+
     function applyRedirect(text) {
         let s = null
         try { s = JSON.parse(text.trim()) } catch (e) { return }
@@ -336,7 +397,7 @@ PluginComponent {
 
     Process {
         id: sampler
-        command: ["sh", "-c", "exec '" + root.scriptPath + "'"]
+        command: [root.scriptPath]
         stdout: StdioCollector {
             id: outCollector
             onStreamFinished: root.applySample(outCollector.text)
@@ -345,11 +406,11 @@ PluginComponent {
 
     Process {
         id: destSampler
-        command: [
-            "sh", "-c",
-            "XRAY_ACCESS='" + root.xrayAccessLog + "' " +
-            "PROXY_PORT='" + root.proxyPort + "' exec '" + root.destScriptPath + "'"
-        ]
+        command: [root.destScriptPath]
+        environment: ({
+            "XRAY_ACCESS": root.xrayAccessLog,
+            "PROXY_PORT": root.proxyPort
+        })
         stdout: StdioCollector {
             id: destCollector
             onStreamFinished: root.applyDest(destCollector.text)
@@ -358,13 +419,25 @@ PluginComponent {
 
     Process {
         id: redirectSampler
-        command: [
-            "sh", "-c",
-            "XRAY_API_PORT='" + root.xrayApiPort + "' exec '" + root.redirectScriptPath + "'"
-        ]
+        command: [root.redirectScriptPath]
+        environment: ({
+            "XRAY_API_PORT": root.xrayApiPort
+        })
         stdout: StdioCollector {
             id: redirectCollector
             onStreamFinished: root.applyRedirect(redirectCollector.text)
+        }
+    }
+
+    Process {
+        id: subscriptionSampler
+        command: [root.subscriptionScriptPath]
+        environment: ({
+            "SUBSCRIPTION_URL": root.subscriptionUrl
+        })
+        stdout: StdioCollector {
+            id: subscriptionCollector
+            onStreamFinished: root.applySubscription(subscriptionCollector.text)
         }
     }
 
@@ -376,7 +449,20 @@ PluginComponent {
         onTriggered: {
             sampler.running = true
             if (root.showDestinations) destSampler.running = true
-            redirectSampler.running = true
+            if (root.xrayStatsNeeded) redirectSampler.running = true
+            else redirectSampler.running = false
+        }
+    }
+
+    // 订阅流量变化很慢, 每 30 分钟读取一次即可, 避免频繁访问服务商
+    Timer {
+        id: subscriptionTimer
+        interval: 30 * 60 * 1000
+        running: root.subscriptionUrl !== "" && root.showToday
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            if (!subscriptionSampler.running) subscriptionSampler.running = true
         }
     }
 
@@ -582,6 +668,17 @@ PluginComponent {
                     }
                 }
 
+                StyledText {
+                    visible: root.subscriptionUrl !== ""
+                    width: parent.width
+                    text: root.subscriptionText()
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: (!root.subscriptionReady && root.subscriptionAttempted)
+                        ? Theme.error
+                        : Theme.surfaceVariantText
+                    elide: Text.ElideRight
+                }
+
                 // ── History line chart (weekly proxy/direct) ──
                 StyledText {
                     visible: root.chartSeries.length === 0
@@ -648,7 +745,7 @@ PluginComponent {
                             function y(v) { return padT + plotH * (1 - v / maxV) }
 
                             ctx.fillStyle = Theme.surfaceVariantText
-                            ctx.font = "8px sans-serif"
+                            ctx.font = root.chartFont
                             ctx.textAlign = "left"
                             ctx.fillText(root.fmtBytes(maxV), 2, padT + 3)
                             ctx.strokeStyle = Theme.withAlpha(Theme.surfaceText, 0.12)
@@ -664,7 +761,7 @@ PluginComponent {
                             ctx.stroke()
 
                             ctx.fillStyle = Theme.surfaceVariantText
-                            ctx.font = "8px sans-serif"
+                            ctx.font = root.chartFont
                             ctx.textAlign = "center"
                             ctx.fillText(root.shortDate(s[0].key), x(0), padT + plotH + 10)
                             if (s.length > 2) {
@@ -840,21 +937,44 @@ PluginComponent {
                     }
                 }
                 StyledText {
-                    text: root.tr("访问进程", "Processes")
+                    text: root.tr("应用用量（今日）", "App usage (today)")
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceVariantText
+                }
+                StyledText {
+                    visible: root.processes.length === 0
+                    text: root.tr("暂无应用流量", "No app traffic yet")
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.surfaceVariantText
                 }
                 Column {
+                    width: parent.width
                     spacing: 2
                     Repeater {
                         model: root.processes
-                        StyledText {
+                        Row {
+                            id: appRow
                             required property string name
-                            required property int count
-                            text: "• " + name + "  (" + count + ")"
-                            font.pixelSize: Theme.fontSizeSmall
-                            elide: Text.ElideRight
-                            color: Theme.surfaceText
+                            required property real down
+                            required property real up
+                            width: parent.width
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                width: Math.max(0, parent.width - usageText.implicitWidth - parent.spacing)
+                                text: "• " + appRow.name
+                                font.pixelSize: Theme.fontSizeSmall
+                                elide: Text.ElideRight
+                                color: Theme.surfaceText
+                            }
+
+                            StyledText {
+                                id: usageText
+                                text: root.fmtBytes(appRow.down + appRow.up)
+                                font.pixelSize: Theme.fontSizeSmall
+                                horizontalAlignment: Text.AlignRight
+                                color: Theme.surfaceText
+                            }
                         }
                     }
                 }

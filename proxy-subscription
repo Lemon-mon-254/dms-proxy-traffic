@@ -1,0 +1,168 @@
+#!/bin/bash
+# proxy-subscription: 读取代理订阅的已用/总计/剩余流量
+# 用于 DMS ProxyTraffic 插件
+#
+# 数据来源:
+#   1. HTTP(S) 订阅地址响应头 subscription-userinfo
+#      subscription-userinfo: upload=...; download=...; total=...; expire=...
+#      这是 v2rayN / Clash 等客户端常用的流量信息头。
+#   2. 部分服务商把流量信息写进节点名称，例如:
+#      剩余流量：1.25 TB
+#      套餐到期：长期有效
+#      链接返回 base64 节点列表时，从节点名称中提取。
+#
+# 环境变量:
+#   SUBSCRIPTION_URL  订阅链接（含 token，不会写入输出）
+#
+# 输出格式:
+#   header: {"ready":true,"source":"header","upload":123,"download":456,"used":579,"total":1024,"expire":0}
+#   nodes:  {"ready":true,"source":"nodes","remaining":1374389534720,"hasRemaining":true,"expireText":"长期有效"}
+#   ready=false 表示链接为空/无效、请求失败或没有可识别的流量信息
+
+SUBSCRIPTION_URL="${SUBSCRIPTION_URL:-}"
+
+case "$SUBSCRIPTION_URL" in
+    http://*|https://*) ;;
+    *)
+        echo '{"ready":false}'
+        exit 0
+        ;;
+esac
+
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/proxy-subscription.XXXXXX" 2>/dev/null) || {
+    echo '{"ready":false}'
+    exit 0
+}
+trap 'rm -rf "$tmp_dir"' EXIT
+
+header_file="$tmp_dir/headers"
+body_file="$tmp_dir/body"
+
+# 有些服务商只对 Clash 客户端返回 subscription-userinfo 响应头。
+curl -sS -L --max-redirs 5 --max-time 10 --max-filesize 10485760 \
+    -A "ClashforWindows/0.20.39" \
+    --dump-header "$header_file" --output "$body_file" \
+    --url "$SUBSCRIPTION_URL" 2>/dev/null
+
+info=$(tr -d '\r' < "$header_file" 2>/dev/null \
+    | grep -i '^subscription-userinfo:' \
+    | tail -n 1 \
+    | cut -d: -f2-)
+
+field() {
+    printf '%s\n' "$info" \
+        | tr ';' '\n' \
+        | sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p" \
+        | head -n 1
+}
+
+if [ -n "$info" ]; then
+    upload=$(field upload)
+    download=$(field download)
+    total=$(field total)
+    expire=$(field expire)
+    upload=${upload:-0}
+    download=${download:-0}
+    total=${total:-0}
+    expire=${expire:-0}
+    used=$((upload + download))
+
+    jq -cn \
+        --argjson upload "$upload" \
+        --argjson download "$download" \
+        --argjson used "$used" \
+        --argjson total "$total" \
+        --argjson expire "$expire" \
+        '{ready:true,source:"header",upload:$upload,download:$download,used:$used,total:$total,expire:$expire}'
+    exit 0
+fi
+
+# 有些订阅返回 base64 节点列表，不返回 subscription-userinfo 响应头。
+# 这类服务商可能把剩余流量/到期时间放在第一个节点的名称里。
+decoded=$(base64 -d "$body_file" 2>/dev/null) || decoded=""
+case "$decoded" in
+    *://*) ;;
+    *)
+        echo '{"ready":false}'
+        exit 0
+        ;;
+esac
+
+remaining_text=""
+expire_text=""
+
+while IFS= read -r line; do
+    case "$line" in
+        *'#'*) name="${line##*#}" ;;
+        *) continue ;;
+    esac
+
+    # 节点名称在 URI 中是 percent-encoded 的，先解码再匹配中文元数据
+    name=$(printf '%b' "${name//%/\\x}" 2>/dev/null) || name=""
+    case "$name" in
+        *剩余流量*)
+            if [ -z "$remaining_text" ]; then
+                remaining_text=$(printf '%s\n' "$name" \
+                    | grep -oiE '剩余流量(：|:)[[:space:]]*[0-9]+([.][0-9]+)?[[:space:]]*[KMGTP]i?B' \
+                    | head -n 1 \
+                    | sed -E 's/^.*(：|:)[[:space:]]*//')
+            fi
+            ;;
+        *套餐到期*)
+            if [ -z "$expire_text" ]; then
+                expire_text=$(printf '%s\n' "$name" \
+                    | sed -nE 's/^.*套餐到期(：|:)[[:space:]]*//p' \
+                    | head -n 1 \
+                    | sed -E 's/[[:space:]]+$//')
+            fi
+            ;;
+    esac
+
+    if [ -n "$remaining_text" ] && [ -n "$expire_text" ]; then
+        break
+    fi
+done <<< "$decoded"
+
+human_to_bytes() {
+    local text="$1" number unit
+    number=$(printf '%s\n' "$text" | sed -nE 's/^([0-9]+([.][0-9]+)?).*/\1/p')
+    unit=$(printf '%s\n' "$text" | sed -nE 's/^[0-9]+([.][0-9]+)?[[:space:]]*([KMGTP]i?B).*/\2/p' \
+        | tr '[:lower:]' '[:upper:]')
+    if [ -z "$number" ]; then
+        echo 0
+        return
+    fi
+    case "$unit" in
+        KIB) unit="KB" ;;
+        MIB) unit="MB" ;;
+        GIB) unit="GB" ;;
+        TIB) unit="TB" ;;
+        PIB) unit="PB" ;;
+    esac
+    awk -v n="$number" -v u="$unit" 'BEGIN {
+        m = 1
+        if (u == "KB") m = 1024
+        else if (u == "MB") m = 1024 ^ 2
+        else if (u == "GB") m = 1024 ^ 3
+        else if (u == "TB") m = 1024 ^ 4
+        else if (u == "PB") m = 1024 ^ 5
+        printf "%.0f", n * m
+    }'
+}
+
+if [ -n "$remaining_text" ] || [ -n "$expire_text" ]; then
+    remaining=0
+    has_remaining=false
+    if [ -n "$remaining_text" ]; then
+        remaining=$(human_to_bytes "$remaining_text")
+        has_remaining=true
+    fi
+    jq -cn \
+        --argjson remaining "$remaining" \
+        --argjson hasRemaining "$has_remaining" \
+        --arg expireText "$expire_text" \
+        '{ready:true,source:"nodes",remaining:$remaining,hasRemaining:$hasRemaining,expireText:$expireText}'
+    exit 0
+fi
+
+echo '{"ready":false}'

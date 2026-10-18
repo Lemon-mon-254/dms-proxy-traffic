@@ -9,8 +9,10 @@ A [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) bar widg
 - **Bar pill** — live proxy download/upload speed (`↓1.2 MB/s ↑45 KB/s`)
 - **Popout panel** — click the pill for a set of cards: live rates, cumulative traffic, history, destinations, redirect
 - **Modular popout cards** — each card (speed / cumulative / history / destinations / redirect) can be shown or hidden independently and **reordered** in settings
-- **History card** — today's traffic persisted across restarts, with a **per-day line chart** (proxy line 🔵, direct line 🟢) of the last N days (3/7/14/30/90), and a **hover tooltip** on each day showing that day's proxy/direct up & down
-- **Today card** — live proxy (`Proxy`) and direct (`Direct`) cumulative totals for today (up+down combined), colored blue/green
+- **History card** — today's traffic persisted across restarts, with a **per-day line chart** (proxy/direct lines use the theme accent colors) of the last N days (3/7/14/30/90), and a **hover tooltip** on each day showing that day's proxy/direct up & down
+- **Today card** — live proxy (`Proxy`) and direct (`Direct`) cumulative totals for today (up+down combined), using the theme accent/success colors
+- **Subscription quota (optional)** — with an HTTP(S) subscription URL, the Today card shows used / total from the `subscription-userinfo` header, or remaining / expiry when the provider only puts that information in node names
+- **App usage (optional)** — the Destinations card shows today's proxy usage per app; it samples local TCP socket counters via `ss`, keeps closed apps' totals for the day, and is approximate (up to ~2 s of the final traffic can be missed)
 - **Persistence** — both cumulative totals and the per-day history survive restarts (persisted to the plugin state), even though nftables counters reset to zero on boot
 - **Proxy-only** — only counts traffic flowing through the local proxy port
 - **Redirect breakdown (xray)** — optional per-outbound proxy vs direct byte totals (and the cumulative/history chart) read from xray's StatsService (`/debug/vars`)
@@ -35,7 +37,7 @@ dms restart
 
 ## Quick start
 
-Run the one-command installer. It installs `nft` if missing, creates the nftables counters for your proxy port, makes them **persistent** across reboots, and grants passwordless read access:
+Run the one-command installer. It installs `nft` if missing, creates the nftables counters for your proxy port, makes them **persistent** across reboots, and grants passwordless read access to just the two counter chains:
 
 ```bash
 cd ~/.config/DankMaterialShell/plugins/ProxyTraffic
@@ -55,7 +57,9 @@ Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 - creates the rule file `/etc/nftables.d/proxy-traffic.nft` for your port
 - applies the counters immediately
 - enables a systemd service (`nft-proxy-traffic.service`) so counters reload on boot
-- writes `/etc/sudoers.d/proxy-nft` so the widget reads counters without prompting
+- writes `/etc/sudoers.d/proxy-nft` with only `nft list chain inet proxy_stat input` and `... output` allowed, so the widget can read counters without prompting but cannot modify the firewall
+
+> **Upgrading from 1.5.0 or earlier:** rerun `sudo ./setup-nftables.sh sudoers` (or `install`) once to replace the old unrestricted sudoers rule.
 
 > **Note:** re-running `install` (or `create`) resets the counters to zero. Set the plugin's *Proxy port* to the same value you used here.
 
@@ -69,7 +73,7 @@ Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 | Show upload rate | on | `↑ speed` on the bar |
 | Show cumulative | off | Shows total proxy traffic on the bar |
 | Show port | off | Appends `:port` |
-| Destinations | off | Popout shows target domains & processes (proxy access log required) |
+| Destinations | off | Popout shows target domains, apps & today's usage (domains need proxy access log; app usage is approximate TCP data) |
 | Redirect (xray) | off | Popout shows proxy vs direct byte totals per xray outbound |
 | **Use xray for cumulative** | off | Cumulative total uses xray (`/debug/vars`) instead of nftables, so it keeps counting across reboots. Only applies on xray/v2rayN |
 | **Bar cumulative = proxy only** | off | When the bar shows cumulative traffic, show only the proxy amount. Needs *Use xray for cumulative* |
@@ -77,10 +81,14 @@ Common proxy ports: **Clash 7890** · v2ray/xray 10808 · sing-box 1080.
 | **Cumulative card** | on | Popout card with cumulative down/up traffic |
 | **History card** | on | Popout card with today's traffic and its line chart |
 | Chart days | `7` | How many days of history the line chart shows (3/7/14/30/90) |
+| Subscription URL | empty | Optional; shows subscription used / total (or remaining / expiry when only that is available) in the Today card; the URL contains a token, keep it private |
 | **Order** | — | Reorder the popout cards (up/down buttons per card) |
-| xray API port | `2551` | xray API inbound port, used for the redirect view |
+| xray API port | `2551` | xray API inbound port, used for the redirect view and xray-backed history |
+| xray access log | empty | Optional xray access log used by the Destinations card; leave empty to disable |
 
 > **Important:** the *Proxy port* in settings should match the port used when running `setup-nftables.sh install`, otherwise counters will not match.
+
+> The xray sampler only runs while **Redirect**, **History card**, or **Use xray for cumulative** is enabled.
 
 ## Redirect breakdown (xray only, optional)
 
@@ -94,6 +102,47 @@ http://127.0.0.1:<xray-api-port>/debug/vars   # -> .stats.outbound.{proxy,direct
 - No nftables rules needed for this view; it supplements (not replaces) the nftables counter.
 - If the port is unreachable, the popout shows a *"xray stats unavailable"* hint instead of failing.
 - Besides the redirect card, xray also powers the **Today card** and the **history line chart** (proxy vs direct per day). These two always use xray for the proxy/direct split, so for a meaningful chart point the proxy API must be reachable.
+
+## Subscription quota (optional)
+
+After entering an HTTP(S) subscription URL in settings, the widget fetches it every 30 minutes and shows quota information in the **Today** card.
+
+If the provider returns the common v2rayN / Clash header:
+
+```
+Used 12.3 GB / 100 GB
+```
+
+- Supports the `subscription-userinfo` header (`upload` / `download` / `total` / `expire`, in bytes).
+- `total=0` is shown as unlimited.
+- The helper identifies itself as a Clash client, because some providers only return `subscription-userinfo` to Clash clients.
+
+Some providers return a base64 node list without that header and put metadata in node names instead, for example:
+
+```
+剩余流量：1.25 TB
+套餐到期：长期有效
+```
+
+In that case the card shows:
+
+```
+Subscription remaining 1.25 TB · 长期有效
+```
+
+- This nonstandard format only exposes remaining traffic and expiry, not a total; used / total cannot be calculated from it.
+- If neither source is available, the card shows "Subscription unavailable".
+- The URL contains a token and is only stored in DMS plugin settings; it is not written to logs or plugin state. Keep it private.
+
+## App usage (optional)
+
+When the **Destinations** card is enabled, it shows today's TCP traffic through the proxy for each application. Counting starts when the card is first enabled or the plugin restarts; traffic from before that cannot be recovered.
+
+- Samples local TCP socket counters on each refresh (2 s by default) and accumulates them per app; an app's total remains after it closes.
+- TCP only: UDP and direct traffic are not included. Up to ~2 seconds of a connection's final traffic can be missed, so the values are approximate.
+- Requires socket process information visible to the user (normally true for apps running as the same user).
+- State is stored in `$XDG_STATE_HOME/dms-proxy-traffic/app-usage.json` (default `~/.local/state/dms-proxy-traffic/app-usage.json`) and resets at the local date change.
+- Target domains still come from the xray access log; without that log, only app usage is shown.
 
 ## Managing rules
 
@@ -129,8 +178,9 @@ The QML widget diffs consecutive samples to derive live rates, matching the diff
 
 - DankMaterialShell >= 1.4.0
 - `nft` (nftables), `sudo`
+- `ss` (iproute2) for the Destinations card
 - A local proxy listening on the configured port (e.g. v2ray/xray/sing-box/clash)
-- Optional (redirect view only): `curl` + `jq`, and an xray/v2rayN proxy
+- Optional xray-backed views (redirect, today/history): `curl` + `jq`, and an xray/v2rayN proxy
 
 ## License
 

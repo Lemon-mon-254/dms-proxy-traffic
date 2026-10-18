@@ -2,8 +2,9 @@
 # proxy-traffic-split: 读取 nftables 计数器并输出代理流量 JSON
 # 用于 DMS ProxyTraffic 插件
 #
-# 需要 sudo 无密码权限读取 nftables:
-#   echo "$USER ALL=(root) NOPASSWD: /usr/bin/nft" | sudo tee /etc/sudoers.d/proxy-nft
+# 需要 sudo 无密码权限读取 nftables 的这两条链 (由 setup-nftables.sh 配置):
+#   nft list chain inet proxy_stat input
+#   nft list chain inet proxy_stat output
 #
 # 规则方向(见 setup-nftables.sh):
 #   input 链  tcp/udp dport $PORT  => 上传 (proxy-up)
@@ -11,12 +12,14 @@
 #
 # 输出格式: {"up": <上行字节>, "down": <下行字节>, "persistent": true}
 
+NFT_BIN="$(command -v nft 2>/dev/null || echo /usr/bin/nft)"
+
 read_counters() {
     local in_chain out_chain
     # input 链: 上传 (def dport = 发往代理)
-    in_chain=$(sudo -n nft list chain inet proxy_stat input 2>/dev/null)
+    in_chain=$(sudo -n "$NFT_BIN" list chain inet proxy_stat input 2>/dev/null)
     # output 链: 下载 (sport = 来自代理)
-    out_chain=$(sudo -n nft list chain inet proxy_stat output 2>/dev/null)
+    out_chain=$(sudo -n "$NFT_BIN" list chain inet proxy_stat output 2>/dev/null)
 
     # 无权限或表不存在时返回错误状态
     if [ -z "$in_chain" ] || [ -z "$out_chain" ]; then

@@ -7,7 +7,7 @@
 #   sudo ./setup-nftables.sh uninstall   # 移除: 规则 + 持久化服务 + 选项是否还原 sudoers
 #   sudo ./setup-nftables.sh delete      # 仅删除当前统计规则
 #   sudo ./setup-nftables.sh show        # 显示当前规则与状态
-#   sudo ./setup-nftables.sh sudoers     # 仅授权无密码读取 nftables(可单独执行)
+#   sudo ./setup-nftables.sh sudoers     # 仅授权读取两条 nft 链(可单独执行)
 #
 # 代理端口通过环境变量 PROXY_PORT 指定, 默认 7890 (常见: Clash 7890 · v2ray 10808 · sing-box 1080):
 #   PROXY_PORT=2547 sudo ./setup-nftables.sh install
@@ -18,13 +18,17 @@ PROXY_PORT="${PROXY_PORT:-7890}"
 RULES_FILE="/etc/nftables.d/proxy-traffic.nft"
 SERVICE_NAME="nft-proxy-traffic.service"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
+NFT_BIN=""
 
 setup_sudoers() {
     local user="${SUDO_USER:-$(whoami)}"
-    echo "为 $user 配置无密码读取 nftables 权限..."
-    echo "$user ALL=(root) NOPASSWD: /usr/bin/nft" > /etc/sudoers.d/proxy-nft
+    local nft_bin="${NFT_BIN:-/usr/bin/nft}"
+    echo "为 $user 配置无密码读取 nftables 计数器权限..."
+    # Only allow the two read-only chain listings used by the widget. Do not
+    # grant blanket `nft` access: `nft` can rewrite the firewall as root.
+    echo "$user ALL=(root) NOPASSWD: $nft_bin list chain inet proxy_stat input, $nft_bin list chain inet proxy_stat output" > /etc/sudoers.d/proxy-nft
     chmod 440 /etc/sudoers.d/proxy-nft
-    echo "已写入 /etc/sudoers.d/proxy-nft"
+    echo "已写入 /etc/sudoers.d/proxy-nft (仅允许读取 proxy_stat 的 input/output 链)"
 }
 
 remove_sudoers() {
@@ -48,6 +52,7 @@ ensure_nft() {
         echo "nftables 已安装"
     fi
     command -v nft >/dev/null 2>&1 || { echo "nft 仍不可用" >&2; exit 1; }
+    NFT_BIN="$(command -v nft)"
 }
 
 write_rules_file() {
@@ -155,7 +160,7 @@ case "$1" in
     create)     create_rules ;;
     delete)     nft delete table inet proxy_stat 2>/dev/null || true; echo "已删除统计规则";;
     show)       show_status ;;
-    sudoers)    setup_sudoers ;;
+    sudoers)    ensure_nft; setup_sudoers ;;
     uninstall)  uninstall_all ;;
     *)
         echo "用法: sudo $0 {install|create|delete|show|sudoers|uninstall}"
