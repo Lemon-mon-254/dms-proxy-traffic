@@ -56,6 +56,7 @@ PluginComponent {
     property bool subscriptionHasRemaining: false
     property real subscriptionRemaining: 0
     property string subscriptionExpireText: ""
+    property int subscriptionRetryCount: 0
     property bool isZh: pluginData.language !== "en"
 
     property real rateUp: 0
@@ -317,15 +318,29 @@ PluginComponent {
         root.processes = Array.isArray(s.processes) ? s.processes : []
     }
 
+    function scheduleSubscriptionRetry() {
+        if (root.subscriptionUrl === "" || !root.showToday)
+            return
+        // 启动时网络可能尚未就绪；失败后 1/5/15 分钟重试，之后回到 30 分钟轮询。
+        var delays = [60, 300, 900]
+        if (root.subscriptionRetryCount >= delays.length)
+            return
+        subscriptionRetryTimer.interval = delays[root.subscriptionRetryCount] * 1000
+        root.subscriptionRetryCount++
+        subscriptionRetryTimer.restart()
+    }
+
     function applySubscription(text) {
         root.subscriptionAttempted = true
         let s = null
         try { s = JSON.parse(text.trim()) } catch (e) {
             root.subscriptionReady = false
+            root.scheduleSubscriptionRetry()
             return
         }
         if (!s || s.ready !== true) {
             root.subscriptionReady = false
+            root.scheduleSubscriptionRetry()
             return
         }
         root.subscriptionSource = (s.source === "nodes") ? "nodes" : "header"
@@ -337,6 +352,8 @@ PluginComponent {
         root.subscriptionRemaining = Math.max(0, Number(s.remaining) || 0)
         root.subscriptionExpireText = typeof s.expireText === "string" ? s.expireText : ""
         root.subscriptionReady = true
+        root.subscriptionRetryCount = 0
+        subscriptionRetryTimer.stop()
     }
 
     function subscriptionText() {
@@ -462,7 +479,17 @@ PluginComponent {
         repeat: true
         triggeredOnStart: true
         onTriggered: {
+            subscriptionRetryTimer.stop()
             if (!subscriptionSampler.running) subscriptionSampler.running = true
+        }
+    }
+
+    Timer {
+        id: subscriptionRetryTimer
+        repeat: false
+        onTriggered: {
+            if (root.subscriptionUrl !== "" && root.showToday && !subscriptionSampler.running)
+                subscriptionSampler.running = true
         }
     }
 
